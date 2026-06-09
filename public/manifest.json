@@ -1,0 +1,8 @@
+{
+  "short_name": "AttendTrack",
+  "name": "NOCEN AttendTrack",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0a0f1e",
+  "background_color": "#0a0f1e"
+}
