@@ -587,7 +587,8 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
             <Btn onClick={addCls} label="Add Session" primary full style={{marginTop:10}} />
           </div>
           {[...myClasses].reverse().map(cls=>(
-            <div key={cls.id} style={S.classCard}>
+            <div key={cls.id}>
+            <div style={S.classCard}>
               <div style={{flex:1}}>
                 <div style={{fontWeight:700}}>{cls.courseCode}</div>
                 <div style={{fontSize:13,color:"#94a3b8"}}>{cls.topic||"Class"} · {cls.date}</div>
@@ -639,6 +640,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                 </div>
               </div>
             )}
+            </div>
           ))}
         </div>
       )}
