@@ -722,6 +722,8 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
 
       {tab==="manage"&&(
         <div style={S.listWrap}>
+
+          {/* Change PIN */}
           <div style={S.formCard}>
             <div style={{fontWeight:700,marginBottom:4,color:"#e2e8f0"}}>🔑 Change My PIN</div>
             <div style={{fontSize:12,color:"#64748b",marginBottom:14}}>Update your login PIN securely.</div>
@@ -730,111 +732,90 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
             <Field label="Confirm New PIN" value={confPin} onChange={setConfPin} placeholder="Re-enter new PIN" type="password" />
             <Btn onClick={changeMyPin} label="Update PIN" primary full />
           </div>
+
+          {/* Export */}
           <div style={S.formCard}>
             <div style={{fontWeight:700,marginBottom:4,color:"#e2e8f0"}}>📥 Export Attendance</div>
             <div style={{fontSize:12,color:"#64748b",marginBottom:14}}>Download records as CSV — opens in Excel.</div>
-            <Btn onClick={()=>exportFullRegister({students:students||{},classes:myClasses,records:records||{},courses:myCourses,confirmedClasses:myConfirmed,pct,showToast})} label="Full Register (My Courses)" primary full />
+            <Btn onClick={()=>exportFullRegister({students:students||{},classes:myClasses||[],records:records||{},courses:myCourses||[],confirmedClasses:myConfirmed||[],pct,showToast})} label="Full Register (My Courses)" primary full />
             <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:8}}>
               {(myCourses||[]).map(code=>(
-                <Btn key={code} onClick={()=>exportCourseCSV({code,students,classes,records,confirmedClasses:myConfirmed,pct,showToast})} label={code} small />
+                <Btn key={code} onClick={()=>exportCourseCSV({code,students:students||{},classes:classes||[],records:records||{},confirmedClasses:myConfirmed||[],pct,showToast})} label={code} small />
               ))}
             </div>
           </div>
+
+          {/* Backup & Restore — Admin only */}
           {isAdmin&&(
             <div style={S.formCard}>
               <div style={{fontWeight:700,marginBottom:4,color:"#e2e8f0"}}>💾 Backup & Restore Data</div>
-              <div style={{fontSize:12,color:"#64748b",marginBottom:12}}>
-                Download a full backup of all students, classes, attendance records and lecturer accounts. 
-                Restore from a previous backup if data is ever lost.
+              <div style={{fontSize:12,color:"#64748b",marginBottom:12}}>Download a full backup weekly. Restore if data is ever lost.</div>
+              <Btn onClick={()=>{
+                try {
+                  const backup = { version:"1.0", exportedAt:new Date().toISOString(), school:"Nwafor Orizu College of Education", department:"Music", data:{ students:students||{}, classes:classes||[], records:records||{}, pending:pending||{}, courses:courses||[], lecturers:lecturers||[] }};
+                  const blob = new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+                  const url  = URL.createObjectURL(blob);
+                  const a    = document.createElement("a");
+                  a.href=url; a.download=`AttendTrack_Backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
+                  URL.revokeObjectURL(url);
+                  showToast("Backup downloaded!");
+                } catch(e){ showToast("Backup failed: "+e.message,"error"); }
+              }} label="⬇ Download Full Backup" primary full />
+              <div style={{marginTop:10}}>
+                <div style={{fontSize:12,color:"#64748b",marginBottom:6}}>Restore from backup file:</div>
+                <label style={{display:"block",border:"2px dashed #1e293b",borderRadius:10,padding:"12px",textAlign:"center",cursor:"pointer",fontSize:12,color:"#64748b"}}>
+                  📂 Tap to select backup file (.json)
+                  <input type="file" accept=".json" style={{display:"none"}} onChange={e=>{
+                    const file = e.target.files[0];
+                    if(!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      try {
+                        const backup = JSON.parse(ev.target.result);
+                        if(!backup.data) return showToast("Invalid backup file","error");
+                        const d = backup.data;
+                        if(d.students)  setStudents(d.students);
+                        if(d.classes)   setClasses(d.classes);
+                        if(d.records)   setRecords(d.records);
+                        if(d.pending)   setPending(d.pending);
+                        if(d.courses)   setCourses(d.courses);
+                        if(d.lecturers) setLecturers(d.lecturers);
+                        showToast("Data restored from backup!");
+                      } catch { showToast("Could not read backup file","error"); }
+                    };
+                    reader.readAsText(file);
+                  }} />
+                </label>
               </div>
-              <Btn onClick={()=>backupAllData({students:students||{},classes:classes||[],records:records||{},pending:pending||{},courses:courses||[],lecturers:lecturers||[],showToast})} label="⬇ Download Full Backup" primary full />
-              <RestorePanel setStudents={setStudents} setClasses={setClasses} setRecords={setRecords}
-                setPending={setPending} setCourses={setCourses} setLecturers={setLecturers} showToast={showToast} />
             </div>
           )}
+
+          {/* Course Management — Admin only */}
           {isAdmin&&(
             <div style={S.formCard}>
               <div style={{fontWeight:700,marginBottom:12,color:"#e2e8f0"}}>Course Management</div>
               <div style={{display:"flex",gap:8}}>
                 <input style={{...S.input,flex:1}} placeholder="New course code e.g. MUS 310" value={newCourse} onChange={e=>setNewCourse(e.target.value)} />
                 <Btn onClick={()=>{
-                  if(!newCourse.trim())return;
-                  if(courses.includes(newCourse.trim()))return showToast("Course already exists","error");
-                  setCourses(p=>[...p,newCourse.trim()]); setNewCourse(""); showToast("Course added.");
+                  if(!newCourse.trim()) return;
+                  const list = courses||[];
+                  if(list.includes(newCourse.trim())) return showToast("Course already exists","error");
+                  setCourses([...list, newCourse.trim()]); setNewCourse(""); showToast("Course added.");
                 }} label="Add" primary small />
               </div>
               <div style={{marginTop:16}}>
-                {courses.map(c=>(
+                {(courses||[]).map(c=>(
                   <div key={c} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #1e293b"}}>
                     <span style={{color:"#e2e8f0"}}>{c}</span>
-                    <span style={{fontSize:12,color:"#ef4444",cursor:"pointer"}} onClick={()=>setCourses(p=>p.filter(x=>x!==c))}>Remove</span>
+                    <span style={{fontSize:12,color:"#ef4444",cursor:"pointer"}} onClick={()=>setCourses((courses||[]).filter(x=>x!==c))}>Remove</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
+
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Backup & Restore ─────────────────────────────────────────────────────────
-function backupAllData({ students, classes, records, pending, courses, lecturers, showToast }) {
-  const backup = {
-    version: "1.0",
-    exportedAt: new Date().toISOString(),
-    school: "Nwafor Orizu College of Education",
-    department: "Music",
-    data: { students, classes, records, pending, courses, lecturers }
-  };
-  const json = JSON.stringify(backup, null, 2);
-  const blob = new Blob([json], { type: "application/json" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href = url;
-  a.download = `AttendTrack_Backup_${new Date().toISOString().slice(0,10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-  showToast("Full backup downloaded successfully!");
-}
-
-function RestorePanel({ setStudents, setClasses, setRecords, setPending, setCourses, setLecturers, showToast }) {
-  const [dragging, setDragging] = useState(false);
-
-  const processFile = (file) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const backup = JSON.parse(e.target.result);
-        if (!backup.data) return showToast("Invalid backup file", "error");
-        const { students, classes, records, pending, courses, lecturers } = backup.data;
-        if (students)  setStudents(students);
-        if (classes)   setClasses(classes);
-        if (records)   setRecords(records);
-        if (pending)   setPending(pending);
-        if (courses)   setCourses(courses);
-        if (lecturers) setLecturers(lecturers);
-        showToast("Data restored successfully from backup!");
-      } catch {
-        showToast("Could not read backup file — make sure it is a valid AttendTrack backup.", "error");
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  return (
-    <div
-      onDragOver={e=>{e.preventDefault();setDragging(true);}}
-      onDragLeave={()=>setDragging(false)}
-      onDrop={e=>{e.preventDefault();setDragging(false);processFile(e.dataTransfer.files[0]);}}
-      style={{border:`2px dashed ${dragging?"#6366f1":"#1e293b"}`,borderRadius:10,padding:"16px",textAlign:"center",marginTop:10,cursor:"pointer",background:dragging?"#1e1b4b":"transparent"}}
-      onClick={()=>document.getElementById("restore-input").click()}
-    >
-      <div style={{fontSize:12,color:"#64748b"}}>📂 Drop backup file here or tap to select</div>
-      <input id="restore-input" type="file" accept=".json" style={{display:"none"}}
-        onChange={e=>processFile(e.target.files[0])} />
     </div>
   );
 }
