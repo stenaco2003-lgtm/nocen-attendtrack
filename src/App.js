@@ -368,8 +368,10 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
   const [resetTarget, setResetTarget] = useState(null);
   const [resetNewPin, setResetNewPin] = useState("");
   const [signDuration, setSignDuration] = useState(15);
+  const [manualClassId, setManualClassId] = useState(null); // class being manually marked
 
   const today = new Date().toISOString().slice(0, 10);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
 
   const addCls = () => {
     const code = newClass.courseCode.trim().toUpperCase();
@@ -402,6 +404,23 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
     showToast("Class session removed.");
   };
 
+  const toggleManualAttendance = (classId, studentNo) => {
+    setRecords(prev => {
+      const list = prev[classId] || [];
+      const updated = list.includes(studentNo)
+        ? list.filter(s => s !== studentNo)
+        : [...list, studentNo];
+      return { ...prev, [classId]: updated };
+    });
+  };
+
+  const saveManualAttendance = (classId) => {
+    // Remove from pending if confirmed manually
+    setPending(prev => { const n={...prev}; delete n[classId]; return n; });
+    setManualClassId(null);
+    showToast("Attendance saved successfully!");
+  };
+
   const approveStudent = (classId, studentNo) => {
     setRecords(prev => ({ ...prev, [classId]: [...(prev[classId]||[]), studentNo] }));
     setPending(prev => ({ ...prev, [classId]: (prev[classId]||[]).filter(s=>s!==studentNo) }));
@@ -415,19 +434,23 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
 
   const startTodaysClasses = () => {
     if (myCourses.length===0) return showToast("No courses yet. Add a class session first.", "error");
-    const alreadyStarted = myCourses.filter(code => classes.some(c=>c.courseCode===code&&c.date===today&&c.confirmed));
-    if (alreadyStarted.length===myCourses.length) return showToast("Today's classes are already open.", "error");
+    const targetDate = selectedDate;
+    const alreadyStarted = myCourses.filter(code => (classes||[]).some(c=>c.courseCode===code&&c.date===targetDate&&c.confirmed));
+    if (alreadyStarted.length===myCourses.length) return showToast("Classes for this date are already open.", "error");
+    const isPast = targetDate < today;
     const newSessions = [];
     myCourses.forEach(code => {
-      const exists = classes.some(c=>c.courseCode===code&&c.date===today);
+      const exists = (classes||[]).some(c=>c.courseCode===code&&c.date===targetDate);
       if (!exists) {
-        newSessions.push({ id: Date.now().toString()+code, courseCode:code, date:today, topic:"", confirmed:true, lecturerId:currentLecturer.id, attendCode:genCode(), expiresAt: Date.now()+signDuration*60*1000 });
+        const sess = { id: Date.now().toString()+code, courseCode:code, date:targetDate, topic:"", confirmed:true, lecturerId:currentLecturer.id, attendCode:genCode() };
+        if (!isPast) sess.expiresAt = Date.now()+signDuration*60*1000;
+        newSessions.push(sess);
       } else {
-        setClasses(prev => prev.map(c => c.courseCode===code&&c.date===today ? { ...c, confirmed:true, attendCode:c.attendCode||genCode(), expiresAt:c.expiresAt||Date.now()+signDuration*60*1000 } : c));
+        setClasses(prev => prev.map(c => c.courseCode===code&&c.date===targetDate ? { ...c, confirmed:true, attendCode:c.attendCode||genCode(), ...(!isPast&&!c.expiresAt?{expiresAt:Date.now()+signDuration*60*1000}:{}) } : c));
       }
     });
     if (newSessions.length>0) setClasses(prev=>[...prev,...newSessions]);
-    showToast("Today's classes are open — students can sign in!");
+    showToast(isPast ? "Past class sessions created — mark attendance manually." : "Classes are open — students can sign in!");
   };
 
   const changeMyPin = () => {
@@ -499,7 +522,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
         <div style={{flex:1}}>
           <div style={{fontWeight:700,fontSize:14,color:"#e2e8f0"}}>📅 {new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</div>
           <div style={{fontSize:12,color:"#64748b",marginTop:2}}>
-            {myCourses.filter(code=>classes.some(c=>c.courseCode===code&&c.date===today&&c.confirmed)).length} / {myCourses.length} courses open today
+            {myCourses.filter(code=>(classes||[]).some(c=>c.courseCode===code&&c.date===today&&c.confirmed)).length} / {myCourses.length} courses open today
           </div>
           {classes.filter(c=>myCourses.includes(c.courseCode)&&c.date===today&&c.confirmed&&c.attendCode).map(c=>(
             <div key={c.id} style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:8,background:"#1e1b4b",border:"1px solid #6366f1",borderRadius:8,padding:"4px 14px",marginRight:8}}>
@@ -510,12 +533,16 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
         </div>
         <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{fontSize:11,color:"#64748b"}}>Date:</span>
+            <input type="date" style={{...S.select,padding:"4px 8px",fontSize:12}} value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} />
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
             <span style={{fontSize:11,color:"#64748b"}}>Window:</span>
             <select style={{...S.select,padding:"4px 8px",fontSize:12}} value={signDuration} onChange={e=>setSignDuration(Number(e.target.value))}>
               {[5,10,15,20,30].map(m=><option key={m} value={m}>{m} min</option>)}
             </select>
           </div>
-          <Btn onClick={startTodaysClasses} label="▶ Start Today's Classes" primary small />
+          <Btn onClick={startTodaysClasses} label={selectedDate<today?"▶ Create Past Session":"▶ Start Classes"} primary small />
         </div>
       </div>
 
@@ -577,11 +604,41 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                   </div>
                 )}
               </div>
-              <div style={{display:"flex",gap:6}}>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
                 {!cls.confirmed&&<Btn onClick={()=>confirmClass(cls.id)} label="Confirm" primary small />}
+                {cls.confirmed&&<Btn onClick={()=>setManualClassId(manualClassId===cls.id?null:cls.id)} label="✏ Mark" small />}
                 <Btn onClick={()=>deleteClass(cls.id)} label="🗑" small danger />
               </div>
             </div>
+            {/* Manual attendance panel */}
+            {manualClassId===cls.id && (
+              <div style={{...S.formCard,marginTop:-6,borderTop:"none",borderRadius:"0 0 14px 14px",paddingTop:12}}>
+                <div style={{fontWeight:700,color:"#e2e8f0",marginBottom:4,fontSize:13}}>✏ Mark Attendance — {cls.courseCode} · {cls.date}</div>
+                <div style={{fontSize:12,color:"#64748b",marginBottom:10}}>Tap a student to toggle Present/Absent. Tap Save when done.</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+                  {Object.values(students).map(s => {
+                    const present = (records[cls.id]||[]).includes(s.studentNo);
+                    return (
+                      <div key={s.studentNo} onClick={()=>toggleManualAttendance(cls.id,s.studentNo)}
+                        style={{padding:"6px 12px",borderRadius:99,fontSize:12,cursor:"pointer",fontWeight:600,
+                          background:present?"#14532d":"#1e293b",
+                          color:present?"#86efac":"#64748b",
+                          border:`1px solid ${present?"#22c55e":"#1e293b"}`}}>
+                        {present?"✓ ":""}{s.name}
+                      </div>
+                    );
+                  })}
+                </div>
+                {Object.keys(students).length===0&&<div style={{fontSize:12,color:"#475569",marginBottom:10}}>No students registered yet.</div>}
+                <div style={{fontSize:12,color:"#94a3b8",marginBottom:10}}>
+                  {(records[cls.id]||[]).length} of {Object.keys(students).length} students marked present
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <Btn onClick={()=>saveManualAttendance(cls.id)} label="💾 Save Attendance" primary small />
+                  <Btn onClick={()=>setManualClassId(null)} label="Cancel" small />
+                </div>
+              </div>
+            )}
           ))}
         </div>
       )}
@@ -683,6 +740,18 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
           </div>
           {isAdmin&&(
             <div style={S.formCard}>
+              <div style={{fontWeight:700,marginBottom:4,color:"#e2e8f0"}}>💾 Backup & Restore Data</div>
+              <div style={{fontSize:12,color:"#64748b",marginBottom:12}}>
+                Download a full backup of all students, classes, attendance records and lecturer accounts. 
+                Restore from a previous backup if data is ever lost.
+              </div>
+              <Btn onClick={()=>backupAllData({students,classes,records,pending,courses,lecturers,showToast})} label="⬇ Download Full Backup" primary full />
+              <RestorePanel setStudents={setStudents} setClasses={setClasses} setRecords={setRecords}
+                setPending={setPending} setCourses={setCourses} setLecturers={setLecturers} showToast={showToast} />
+            </div>
+          )}
+          {isAdmin&&(
+            <div style={S.formCard}>
               <div style={{fontWeight:700,marginBottom:12,color:"#e2e8f0"}}>Course Management</div>
               <div style={{display:"flex",gap:8}}>
                 <input style={{...S.input,flex:1}} placeholder="New course code e.g. MUS 310" value={newCourse} onChange={e=>setNewCourse(e.target.value)} />
@@ -704,6 +773,66 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Backup & Restore ─────────────────────────────────────────────────────────
+function backupAllData({ students, classes, records, pending, courses, lecturers, showToast }) {
+  const backup = {
+    version: "1.0",
+    exportedAt: new Date().toISOString(),
+    school: "Nwafor Orizu College of Education",
+    department: "Music",
+    data: { students, classes, records, pending, courses, lecturers }
+  };
+  const json = JSON.stringify(backup, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url;
+  a.download = `AttendTrack_Backup_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("Full backup downloaded successfully!");
+}
+
+function RestorePanel({ setStudents, setClasses, setRecords, setPending, setCourses, setLecturers, showToast }) {
+  const [dragging, setDragging] = useState(false);
+
+  const processFile = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const backup = JSON.parse(e.target.result);
+        if (!backup.data) return showToast("Invalid backup file", "error");
+        const { students, classes, records, pending, courses, lecturers } = backup.data;
+        if (students)  setStudents(students);
+        if (classes)   setClasses(classes);
+        if (records)   setRecords(records);
+        if (pending)   setPending(pending);
+        if (courses)   setCourses(courses);
+        if (lecturers) setLecturers(lecturers);
+        showToast("Data restored successfully from backup!");
+      } catch {
+        showToast("Could not read backup file — make sure it is a valid AttendTrack backup.", "error");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <div
+      onDragOver={e=>{e.preventDefault();setDragging(true);}}
+      onDragLeave={()=>setDragging(false)}
+      onDrop={e=>{e.preventDefault();setDragging(false);processFile(e.dataTransfer.files[0]);}}
+      style={{border:`2px dashed ${dragging?"#6366f1":"#1e293b"}`,borderRadius:10,padding:"16px",textAlign:"center",marginTop:10,cursor:"pointer",background:dragging?"#1e1b4b":"transparent"}}
+      onClick={()=>document.getElementById("restore-input").click()}
+    >
+      <div style={{fontSize:12,color:"#64748b"}}>📂 Drop backup file here or tap to select</div>
+      <input id="restore-input" type="file" accept=".json" style={{display:"none"}}
+        onChange={e=>processFile(e.target.files[0])} />
     </div>
   );
 }
