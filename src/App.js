@@ -722,6 +722,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
 
       {tab==="manage"&&(
         <div style={S.listWrap}>
+          {(courses===null||lecturers===null)?<Empty msg="Loading data, please wait..."/>:<>
 
           {/* Change PIN */}
           <div style={S.formCard}>
@@ -814,6 +815,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
             </div>
           )}
 
+        </>}
         </div>
       )}
     </div>
