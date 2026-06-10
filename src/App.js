@@ -492,14 +492,14 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
   const toggleNlCourse = (code) => setNlCourses(prev=>prev.includes(code)?prev.filter(c=>c!==code):[...prev,code]);
 
   const allPending = [];
-  Object.entries(pending).forEach(([classId,sns])=>{
+  Object.entries(pending||{}).forEach(([classId,sns])=>{
     const cls=classes.find(c=>c.id===classId);
     if (!cls||!myCourses.includes(cls.courseCode)) return;
     sns.forEach(sno=>{ const st=students[sno]; if(st) allPending.push({classId,cls,student:st}); });
   });
 
-  const myClasses   = classes.filter(c=>myCourses.includes(c.courseCode));
-  const myConfirmed = confirmedClasses.filter(c=>myCourses.includes(c.courseCode));
+  const myClasses   = (classes||[]).filter(c=>(myCourses||[]).includes(c.courseCode));
+  const myConfirmed = (confirmedClasses||[]).filter(c=>(myCourses||[]).includes(c.courseCode));
 
   return (
     <div style={S.page}>
@@ -512,7 +512,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
       </header>
 
       <div style={S.chips}>
-        <Chip label="Students" value={Object.keys(students).length} color="#6366f1" />
+        <Chip label="Students" value={Object.keys(students||{}).length} color="#6366f1" />
         <Chip label="My Classes" value={myConfirmed.length} color="#22c55e" />
         <Chip label="Pending" value={allPending.length} color="#f59e0b" />
       </div>
@@ -522,9 +522,9 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
         <div style={{flex:1}}>
           <div style={{fontWeight:700,fontSize:14,color:"#e2e8f0"}}>📅 {new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</div>
           <div style={{fontSize:12,color:"#64748b",marginTop:2}}>
-            {myCourses.filter(code=>(classes||[]).some(c=>c.courseCode===code&&c.date===today&&c.confirmed)).length} / {myCourses.length} courses open today
+            {(myCourses||[]).filter(code=>(classes||[]).some(c=>c.courseCode===code&&c.date===today&&c.confirmed)).length} / {(myCourses||[]).length} courses open today
           </div>
-          {classes.filter(c=>myCourses.includes(c.courseCode)&&c.date===today&&c.confirmed&&c.attendCode).map(c=>(
+          {(classes||[]).filter(c=>(myCourses||[]).includes(c.courseCode)&&c.date===today&&c.confirmed&&c.attendCode).map(c=>(
             <div key={c.id} style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:8,background:"#1e1b4b",border:"1px solid #6366f1",borderRadius:8,padding:"4px 14px",marginRight:8}}>
               <span style={{fontSize:11,color:"#94a3b8"}}>{c.courseCode}:</span>
               <span style={{fontSize:22,fontWeight:800,letterSpacing:5,color:"#a5b4fc"}}>{c.attendCode}</span>
@@ -617,7 +617,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                 <div style={{fontWeight:700,color:"#e2e8f0",marginBottom:4,fontSize:13}}>✏ Mark Attendance — {cls.courseCode} · {cls.date}</div>
                 <div style={{fontSize:12,color:"#64748b",marginBottom:10}}>Tap a student to toggle Present/Absent. Tap Save when done.</div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
-                  {Object.values(students).map(s => {
+                  {Object.values(students||{}).map(s => {
                     const present = (records[cls.id]||[]).includes(s.studentNo);
                     return (
                       <div key={s.studentNo} onClick={()=>toggleManualAttendance(cls.id,s.studentNo)}
@@ -630,7 +630,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                     );
                   })}
                 </div>
-                {Object.keys(students).length===0&&<div style={{fontSize:12,color:"#475569",marginBottom:10}}>No students registered yet.</div>}
+                {Object.keys(students||{}).length===0&&<div style={{fontSize:12,color:"#475569",marginBottom:10}}>No students registered yet.</div>}
                 <div style={{fontSize:12,color:"#94a3b8",marginBottom:10}}>
                   {(records[cls.id]||[]).length} of {Object.keys(students).length} students marked present
                 </div>
@@ -647,8 +647,8 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
 
       {tab==="students" && (
         <div style={S.listWrap}>
-          {Object.values(students).length===0?<Empty msg="No students registered yet."/>:
-            Object.values(students).map(s=>{
+          {Object.values(students||{}).length===0?<Empty msg="No students registered yet."/>:
+            Object.values(students||{}).map(s=>{
               const stats=studentStats(s.studentNo,myCourses);
               let tot=0,att=0; Object.values(stats).forEach(x=>{tot+=x.total;att+=x.attended;});
               const p=pct(att,tot);
@@ -688,7 +688,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
             </div>
             <Btn onClick={addLecturer} label="Add Lecturer" primary full />
           </div>
-          {lecturers.map(lec=>(
+          {(lecturers||[]).map(lec=>(
             <div key={lec.id}>
               <div style={S.classCard}>
                 <div style={{flex:1}}>
@@ -733,9 +733,9 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
           <div style={S.formCard}>
             <div style={{fontWeight:700,marginBottom:4,color:"#e2e8f0"}}>📥 Export Attendance</div>
             <div style={{fontSize:12,color:"#64748b",marginBottom:14}}>Download records as CSV — opens in Excel.</div>
-            <Btn onClick={()=>exportFullRegister({students,classes:myClasses,records,courses:myCourses,confirmedClasses:myConfirmed,pct,showToast})} label="Full Register (My Courses)" primary full />
+            <Btn onClick={()=>exportFullRegister({students:students||{},classes:myClasses,records:records||{},courses:myCourses,confirmedClasses:myConfirmed,pct,showToast})} label="Full Register (My Courses)" primary full />
             <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:8}}>
-              {myCourses.map(code=>(
+              {(myCourses||[]).map(code=>(
                 <Btn key={code} onClick={()=>exportCourseCSV({code,students,classes,records,confirmedClasses:myConfirmed,pct,showToast})} label={code} small />
               ))}
             </div>
@@ -747,7 +747,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                 Download a full backup of all students, classes, attendance records and lecturer accounts. 
                 Restore from a previous backup if data is ever lost.
               </div>
-              <Btn onClick={()=>backupAllData({students,classes,records,pending,courses,lecturers,showToast})} label="⬇ Download Full Backup" primary full />
+              <Btn onClick={()=>backupAllData({students:students||{},classes:classes||[],records:records||{},pending:pending||{},courses:courses||[],lecturers:lecturers||[],showToast})} label="⬇ Download Full Backup" primary full />
               <RestorePanel setStudents={setStudents} setClasses={setClasses} setRecords={setRecords}
                 setPending={setPending} setCourses={setCourses} setLecturers={setLecturers} showToast={showToast} />
             </div>
