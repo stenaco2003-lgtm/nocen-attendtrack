@@ -30,37 +30,37 @@ async function fbSet(docPath, value) {
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
   const [view, setView]             = useState("splash");
-  const [students, setStudents]     = useState({});
-  const [classes, setClasses]       = useState([]);
-  const [records, setRecords]       = useState({});
-  const [pending, setPending]       = useState({});
-  const [courses, setCourses]       = useState([]);
-  const [lecturers, setLecturers]   = useState(DEFAULT_LECTURERS);
+  const [students, setStudents]     = useState(null);
+  const [classes, setClasses]       = useState(null);
+  const [records, setRecords]       = useState(null);
+  const [pending, setPending]       = useState(null);
+  const [courses, setCourses]       = useState(null);
+  const [lecturers, setLecturers]   = useState(null);
   const [currentStudent, setCurrentStudent] = useState(null);
   const [currentLecturer, setCurrentLecturer] = useState(null);
   const [toast, setToast]           = useState(null);
   const [loading, setLoading]       = useState(true);
 
-  // Load from Firestore on mount
+  // Load from Firestore on mount — NEVER overwrite Firebase data with defaults
   useEffect(() => {
     (async () => {
-      const s  = await fbGet("attendtrack/students");  if (s)  setStudents(s);
-      const c  = await fbGet("attendtrack/classes");   if (c)  setClasses(c);
-      const r  = await fbGet("attendtrack/records");   if (r)  setRecords(r);
-      const p  = await fbGet("attendtrack/pending");   if (p)  setPending(p);
-      const co = await fbGet("attendtrack/courses");   if (co) setCourses(co);
-      const lc = await fbGet("attendtrack/lecturers"); if (lc) setLecturers(lc);
+      const s  = await fbGet("attendtrack/students");  setStudents(s  ?? {});
+      const c  = await fbGet("attendtrack/classes");   setClasses(c   ?? []);
+      const r  = await fbGet("attendtrack/records");   setRecords(r   ?? {});
+      const p  = await fbGet("attendtrack/pending");   setPending(p   ?? {});
+      const co = await fbGet("attendtrack/courses");   setCourses(co  ?? []);
+      const lc = await fbGet("attendtrack/lecturers"); setLecturers(lc ?? DEFAULT_LECTURERS);
       setLoading(false);
     })();
   }, []);
 
-  // Save to Firestore on every change
-  useEffect(() => { if (!loading) fbSet("attendtrack/students",  students);  }, [students, loading]);
-  useEffect(() => { if (!loading) fbSet("attendtrack/classes",   classes);   }, [classes, loading]);
-  useEffect(() => { if (!loading) fbSet("attendtrack/records",   records);   }, [records, loading]);
-  useEffect(() => { if (!loading) fbSet("attendtrack/pending",   pending);   }, [pending, loading]);
-  useEffect(() => { if (!loading) fbSet("attendtrack/courses",   courses);   }, [courses, loading]);
-  useEffect(() => { if (!loading) fbSet("attendtrack/lecturers", lecturers); }, [lecturers, loading]);
+  // Save to Firestore — only after loading is complete AND value is not null
+  useEffect(() => { if (!loading && students  !== null) fbSet("attendtrack/students",  students);  }, [students,  loading]);
+  useEffect(() => { if (!loading && classes   !== null) fbSet("attendtrack/classes",   classes);   }, [classes,   loading]);
+  useEffect(() => { if (!loading && records   !== null) fbSet("attendtrack/records",   records);   }, [records,   loading]);
+  useEffect(() => { if (!loading && pending   !== null) fbSet("attendtrack/pending",   pending);   }, [pending,   loading]);
+  useEffect(() => { if (!loading && courses   !== null) fbSet("attendtrack/courses",   courses);   }, [courses,   loading]);
+  useEffect(() => { if (!loading && lecturers !== null) fbSet("attendtrack/lecturers", lecturers); }, [lecturers, loading]);
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -68,13 +68,13 @@ export default function App() {
   };
 
   const myCoursesForLecturer = (lec) =>
-    lec?.isAdmin || lec?.courses === "__all__" ? courses : (lec?.courses || []);
+    lec?.isAdmin || lec?.courses === "__all__" ? (courses || []) : (lec?.courses || []);
 
-  const confirmedClasses = classes.filter(c => c.confirmed);
+  const confirmedClasses = (classes || []).filter(c => c.confirmed);
 
   const studentStats = (studentNo, visibleCourses) => {
     const stats = {};
-    (visibleCourses || courses).forEach(code => {
+    (visibleCourses || courses || []).forEach(code => {
       const cls = confirmedClasses.filter(c => c.courseCode === code);
       const attended = cls.filter(c => (records[c.id] || []).includes(studentNo)).length;
       stats[code] = { total: cls.length, attended };
