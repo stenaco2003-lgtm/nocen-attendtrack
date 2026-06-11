@@ -94,7 +94,7 @@ export default function App() {
   if (loading) return (
     <div style={{...S.center, flexDirection:"column", gap:16}}>
       <div style={S.logo}>◈</div>
-      <div style={{color:"#6366f1", fontSize:14}}>Loading AttendTrack...</div>
+      <div style={{color:"#1d4ed8", fontSize:14, fontWeight:600}}>Loading AttendTrack...</div>
     </div>
   );
 
@@ -108,7 +108,7 @@ export default function App() {
       )}
       {view === "splash"   && <Splash setView={setView} />}
       {view === "register" && <Register students={students} setStudents={setStudents} setView={setView} showToast={showToast} setCurrentStudent={setCurrentStudent} />}
-      {view === "sign-in"  && <SignInStudent students={students} setView={setView} showToast={showToast} setCurrentStudent={setCurrentStudent} />}
+      {view === "sign-in"  && <SignInStudent students={students} setStudents={setStudents} setView={setView} showToast={showToast} setCurrentStudent={setCurrentStudent} />}
       {view === "student"  && currentStudent && (
         <StudentDash student={currentStudent} classes={classes} confirmedClasses={confirmedClasses}
           records={records} pending={pending} setPending={setPending} courses={courses}
@@ -163,12 +163,17 @@ function Splash({ setView }) {
 
 // ── Register ──────────────────────────────────────────────────────────────────
 function Register({ students, setStudents, setView, showToast, setCurrentStudent }) {
-  const [name, setName] = useState("");
-  const [sno, setSno]   = useState("");
+  const [name, setName]       = useState("");
+  const [sno, setSno]         = useState("");
+  const [pwd, setPwd]         = useState("");
+  const [pwd2, setPwd2]       = useState("");
   const submit = () => {
     if (!name.trim() || !sno.trim()) return showToast("Please fill all fields", "error");
+    if (!pwd.trim()) return showToast("Please create a password", "error");
+    if (pwd.length < 4) return showToast("Password must be at least 4 characters", "error");
+    if (pwd !== pwd2) return showToast("Passwords do not match", "error");
     if (students[sno.trim()]) return showToast("Student number already registered", "error");
-    const student = { name: name.trim(), studentNo: sno.trim() };
+    const student = { name: name.trim(), studentNo: sno.trim(), password: pwd };
     setStudents(prev => ({ ...prev, [sno.trim()]: student }));
     setCurrentStudent(student);
     showToast("Registration successful! Welcome, " + name.split(" ")[0]);
@@ -182,6 +187,8 @@ function Register({ students, setStudents, setView, showToast, setCurrentStudent
         <p style={S.cardSub}>First-time? Set up your attendance profile.</p>
         <Field label="Full Name" value={name} onChange={setName} placeholder="e.g. Chukwuemeka Obi" />
         <Field label="Student Number" value={sno} onChange={setSno} placeholder="e.g. 2021/001234" />
+        <Field label="Create Password" value={pwd} onChange={setPwd} placeholder="Minimum 4 characters" type="password" />
+        <Field label="Confirm Password" value={pwd2} onChange={setPwd2} placeholder="Re-enter your password" type="password" />
         <Btn onClick={submit} label="Register & Continue" primary full />
       </div>
     </div>
@@ -189,24 +196,72 @@ function Register({ students, setStudents, setView, showToast, setCurrentStudent
 }
 
 // ── Sign In Student ───────────────────────────────────────────────────────────
-function SignInStudent({ students, setView, showToast, setCurrentStudent }) {
-  const [sno, setSno] = useState("");
-  const go = () => {
+function SignInStudent({ students, setStudents, setView, showToast, setCurrentStudent }) {
+  const [sno, setSno]       = useState("");
+  const [pwd, setPwd]       = useState("");
+  const [newPwd, setNewPwd] = useState("");
+  const [newPwd2, setNewPwd2] = useState("");
+  const [needsPassword, setNeedsPassword] = useState(false);
+  const [foundStudent, setFoundStudent]   = useState(null);
+
+  const checkStudent = () => {
     if (!sno.trim()) return;
     const student = students[sno.trim()];
     if (!student) { showToast("Student number not found. Please register first.", "error"); return; }
-    setCurrentStudent(student);
-    showToast("Welcome back, " + student.name.split(" ")[0] + "!");
+    // Existing student with no password — prompt to set one
+    if (!student.password) {
+      setFoundStudent(student);
+      setNeedsPassword(true);
+      return;
+    }
+    setFoundStudent(student);
+  };
+
+  const go = () => {
+    if (!foundStudent) return checkStudent();
+    if (!pwd.trim()) return showToast("Please enter your password", "error");
+    if (pwd !== foundStudent.password) return showToast("Incorrect password. Please try again.", "error");
+    setCurrentStudent(foundStudent);
+    showToast("Welcome back, " + foundStudent.name.split(" ")[0] + "!");
     setView("student");
   };
+
+  const setFirstPassword = () => {
+    if (!newPwd.trim()) return showToast("Please create a password", "error");
+    if (newPwd.length < 4) return showToast("Password must be at least 4 characters", "error");
+    if (newPwd !== newPwd2) return showToast("Passwords do not match", "error");
+    const updated = { ...foundStudent, password: newPwd };
+    setStudents(prev => ({ ...prev, [foundStudent.studentNo]: updated }));
+    setCurrentStudent(updated);
+    showToast("Password set! Welcome back, " + foundStudent.name.split(" ")[0] + "!");
+    setView("student");
+  };
+
+  // First-time password setup for existing students
+  if (needsPassword && foundStudent) {
+    return (
+      <div style={S.center}>
+        <div style={S.card}>
+          <BackBtn onClick={() => { setNeedsPassword(false); setFoundStudent(null); setSno(""); }} />
+          <h2 style={S.cardTitle}>Create Your Password</h2>
+          <p style={S.cardSub}>Hello {foundStudent.name.split(" ")[0]}! For your security, please create a password for your account.</p>
+          <Field label="New Password" value={newPwd} onChange={setNewPwd} placeholder="Minimum 4 characters" type="password" />
+          <Field label="Confirm Password" value={newPwd2} onChange={setNewPwd2} placeholder="Re-enter your password" type="password" />
+          <Btn onClick={setFirstPassword} label="Set Password & Continue" primary full />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={S.center}>
       <div style={S.card}>
         <BackBtn onClick={() => setView("splash")} />
         <h2 style={S.cardTitle}>Student Sign-In</h2>
-        <p style={S.cardSub}>Enter your student number to continue.</p>
-        <Field label="Student Number" value={sno} onChange={setSno} placeholder="e.g. 2021/001234" />
-        <Btn onClick={go} label="Sign In" primary full />
+        <p style={S.cardSub}>Enter your student number and password.</p>
+        <Field label="Student Number" value={sno} onChange={v=>{ setSno(v); setFoundStudent(null); setPwd(""); }} placeholder="e.g. 2021/001234" />
+        {foundStudent && <Field label="Password" value={pwd} onChange={setPwd} placeholder="Enter your password" type="password" />}
+        <Btn onClick={foundStudent ? go : checkStudent} label={foundStudent ? "Sign In" : "Continue"} primary full />
         <p style={{ textAlign:"center", marginTop:16, fontSize:13, color:"#94a3b8" }}>
           First time? <span style={{ color:"#6366f1", cursor:"pointer" }} onClick={() => setView("register")}>Register here</span>
         </p>
@@ -261,17 +316,19 @@ function StudentDash({ student, classes, confirmedClasses, records, pending, set
 
   return (
     <div style={S.page}>
-      <header style={S.header}>
-        <div>
-          <div style={S.headerTitle}>AttendTrack</div>
-          <div style={S.headerSub}>NOCEN Music Dept · Welcome, {student.name}</div>
+      <div style={S.header}>
+        <div style={S.headerInner}>
+          <div>
+            <div style={S.headerTitle}>AttendTrack</div>
+            <div style={S.headerSub}>NOCEN Music Dept · Welcome, {student.name}</div>
+          </div>
+          <Btn onClick={() => setView("splash")} label="Sign Out" small />
         </div>
-        <Btn onClick={() => setView("splash")} label="Sign Out" small />
-      </header>
+      </div>
       <div style={S.overallBar}>
         <Ring pct={totalPct()} size={80} />
         <div style={{ marginLeft:20 }}>
-          <div style={{ fontSize:13, color:"#94a3b8", marginBottom:2 }}>Overall Attendance</div>
+          <div style={{ fontSize:13, color:"#64748b", marginBottom:2 }}>Overall Attendance</div>
           <div style={{ fontSize:28, fontWeight:700, color:pctColor(totalPct()) }}>{totalPct()}%</div>
           <div style={{ fontSize:12, color: totalPct()>=75?"#22c55e":"#ef4444" }}>
             {totalPct()>=75?"✓ Satisfactory":"⚠ Below Required 75%"}
@@ -525,13 +582,15 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
 
   return (
     <div style={S.page}>
-      <header style={S.header}>
-        <div>
-          <div style={S.headerTitle}>AttendTrack</div>
-          <div style={S.headerSub}>NOCEN Music Dept · {currentLecturer.name}{isAdmin?" · Admin":""}</div>
+      <div style={S.header}>
+        <div style={S.headerInner}>
+          <div>
+            <div style={S.headerTitle}>AttendTrack</div>
+            <div style={S.headerSub}>NOCEN Music Dept · {currentLecturer.name}{isAdmin?" · Admin":""}</div>
+          </div>
+          <Btn onClick={()=>{setCurrentLecturer(null);setView("splash");}} label="Sign Out" small />
         </div>
-        <Btn onClick={()=>{setCurrentLecturer(null);setView("splash");}} label="Sign Out" small />
-      </header>
+      </div>
 
       <div style={S.chips}>
         <Chip label="Students" value={Object.keys(students||{}).length} color="#6366f1" />
@@ -542,8 +601,8 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
       {/* Today Banner */}
       <div style={S.todayBanner}>
         <div style={{flex:1}}>
-          <div style={{fontWeight:700,fontSize:14,color:"#e2e8f0"}}>📅 {new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</div>
-          <div style={{fontSize:12,color:"#64748b",marginTop:2}}>
+          <div style={{fontWeight:700,fontSize:14,color:"#1e3a5f"}}>📅 {new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</div>
+          <div style={{fontSize:12,color:"#3b82f6",marginTop:2}}>
             {(myCourses||[]).filter(code=>(classes||[]).some(c=>c.courseCode===code&&c.date===today&&c.confirmed)).length} / {(myCourses||[]).length} courses open today
           </div>
           {(classes||[]).filter(c=>(myCourses||[]).includes(c.courseCode)&&c.date===today&&c.confirmed&&c.attendCode).map(c=>(
@@ -600,7 +659,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
       {tab==="classes" && (
         <div style={S.listWrap}>
           <div style={S.formCard}>
-            <div style={{fontWeight:700,marginBottom:12,color:"#e2e8f0"}}>Add New Class Session</div>
+            <div style={{fontWeight:700,marginBottom:12,color:"#1e293b"}}>Add New Class Session</div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               <input style={{...S.input,flex:1,minWidth:120}} placeholder="Course code e.g. MUS 427" value={newClass.courseCode} onChange={e=>setNewClass(p=>({...p,courseCode:e.target.value}))} />
               <input type="date" style={S.input} value={newClass.date} onChange={e=>setNewClass(p=>({...p,date:e.target.value}))} />
@@ -694,7 +753,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
       {tab==="lecturers"&&isAdmin&&(
         <div style={S.listWrap}>
           <div style={S.formCard}>
-            <div style={{fontWeight:700,marginBottom:12,color:"#e2e8f0"}}>Add New Lecturer</div>
+            <div style={{fontWeight:700,marginBottom:12,color:"#1e293b"}}>Add New Lecturer</div>
             <Field label="Full Name" value={nlName} onChange={setNlName} placeholder="e.g. Dr. Adaeze Eze" />
             <Field label="PIN" value={nlPin} onChange={setNlPin} placeholder="e.g. 5678" type="password" />
             <div style={{marginBottom:16}}>
@@ -760,7 +819,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
 
           {/* Change PIN */}
           <div style={S.formCard}>
-            <div style={{fontWeight:700,marginBottom:4,color:"#e2e8f0"}}>🔑 Change My PIN</div>
+            <div style={{fontWeight:700,marginBottom:4,color:"#1e293b"}}>🔑 Change My PIN</div>
             <div style={{fontSize:12,color:"#64748b",marginBottom:14}}>Update your login PIN securely.</div>
             <Field label="Current PIN" value={curPin} onChange={setCurPin} placeholder="Current PIN" type="password" />
             <Field label="New PIN" value={newPin} onChange={setNewPin} placeholder="New PIN" type="password" />
@@ -770,7 +829,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
 
           {/* Export */}
           <div style={S.formCard}>
-            <div style={{fontWeight:700,marginBottom:4,color:"#e2e8f0"}}>📥 Export Attendance</div>
+            <div style={{fontWeight:700,marginBottom:4,color:"#1e293b"}}>📥 Export Attendance</div>
             <div style={{fontSize:12,color:"#64748b",marginBottom:14}}>Download records as CSV — opens in Excel.</div>
             <Btn onClick={()=>exportFullRegister({students:students||{},classes:myClasses||[],records:records||{},courses:myCourses||[],confirmedClasses:myConfirmed||[],pct,showToast})} label="Full Register (My Courses)" primary full />
             <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:8}}>
@@ -783,7 +842,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
           {/* Backup & Restore — Admin only */}
           {isAdmin&&(
             <div style={S.formCard}>
-              <div style={{fontWeight:700,marginBottom:4,color:"#e2e8f0"}}>💾 Backup & Restore Data</div>
+              <div style={{fontWeight:700,marginBottom:4,color:"#1e293b"}}>💾 Backup & Restore Data</div>
               <div style={{fontSize:12,color:"#64748b",marginBottom:12}}>Download a full backup weekly. Restore if data is ever lost.</div>
               <Btn onClick={()=>{
                 try {
@@ -828,7 +887,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
           {/* Course Management — Admin only */}
           {isAdmin&&(
             <div style={S.formCard}>
-              <div style={{fontWeight:700,marginBottom:12,color:"#e2e8f0"}}>Course Management</div>
+              <div style={{fontWeight:700,marginBottom:12,color:"#1e293b"}}>Course Management</div>
               <div style={{display:"flex",gap:8}}>
                 <input style={{...S.input,flex:1}} placeholder="New course code e.g. MUS 310" value={newCourse} onChange={e=>setNewCourse(e.target.value)} />
                 <Btn onClick={()=>{
@@ -921,7 +980,7 @@ function Field({ label, value, onChange, placeholder, type="text" }) {
 function BackBtn({ onClick }) { return <div onClick={onClick} style={{cursor:"pointer",color:"#6366f1",fontSize:13,marginBottom:16}}>← Back</div>; }
 function Empty({ msg }) { return <div style={{textAlign:"center",color:"#475569",padding:"40px 0",fontSize:14}}>{msg}</div>; }
 function Chip({ label, value, color }) {
-  return <div style={{...S.chip,borderColor:color}}><div style={{fontSize:22,fontWeight:800,color}}>{value}</div><div style={{fontSize:11,color:"#64748b"}}>{label}</div></div>;
+  return <div style={{...S.chip,borderColor:color}}><div style={{fontSize:22,fontWeight:800,color}}>{value}</div><div style={{fontSize:11,color:"#64748b",marginTop:2}}>{label}</div></div>;
 }
 function Ring({ pct:p, size=60 }) {
   const r=size/2-6,circ=2*Math.PI*r,offset=circ-(p/100)*circ,col=p>=75?"#22c55e":p>=50?"#f59e0b":"#ef4444";
@@ -931,6 +990,9 @@ function Ring({ pct:p, size=60 }) {
 // ── Inventory Dashboard ───────────────────────────────────────────────────────
 function InventoryDash({ instruments, setInstruments, loans, setLoans, studentInstruments, students, lecturers, currentLecturer, setCurrentLecturer, setView, showToast, isAdmin }) {
   const [lecPin, setLecPin]         = useState("");
+  const [invSno, setInvSno]         = useState("");
+  const [invRole, setInvRole]       = useState(null); // "student" | "lecturer"
+  const [invStudent, setInvStudent] = useState(null);
   const [tab, setTab]               = useState("inventory");
   const [showAddInst, setShowAddInst] = useState(false);
   const [newInst, setNewInst]       = useState({ name:"", type:"", serialNo:"", quantity:1, condition:"Good", location:"" });
@@ -942,25 +1004,218 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
   const CONDITIONS = ["Good","Fair","Poor","Under Repair","Damaged"];
   const TYPES      = ["String","Wind","Keyboard","Percussion","Vocal","Other"];
 
-  // Login if not logged in
-  if (!currentLecturer) {
+  // ── Entry screen — role selection ──────────────────────────────────────────
+  if (!currentLecturer && invRole === null) {
     return (
       <div style={S.center}>
         <div style={S.card}>
           <BackBtn onClick={() => setView("splash")} />
-          <h2 style={S.cardTitle}>Instrument Store</h2>
-          <p style={S.cardSub}>Enter your lecturer PIN to continue.</p>
+          <div style={{textAlign:"center",marginBottom:24}}>
+            <div style={{fontSize:36,marginBottom:8}}>🎸</div>
+            <h2 style={S.cardTitle}>Instrument Store</h2>
+            <p style={S.cardSub}>NOCEN Department of Music</p>
+          </div>
+          <div style={{display:"flex",gap:12,flexDirection:"column"}}>
+            <Btn onClick={()=>setInvRole("student")} label="I am a Student" icon="🎓" primary full />
+            <Btn onClick={()=>setInvRole("lecturer")} label="I am a Lecturer / Admin" icon="🔐" full />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Student entry ────────────────────────────────────────────────────────────
+  if (!currentLecturer && invRole === "student" && !invStudent) {
+    const [invPwd, setInvPwd] = useState("");
+    const [invFoundStudent, setInvFoundStudent] = useState(null);
+    return (
+      <div style={S.center}>
+        <div style={S.card}>
+          <BackBtn onClick={() => setInvRole(null)} />
+          <h2 style={S.cardTitle}>Student Access</h2>
+          <p style={S.cardSub}>Enter your student number and password.</p>
+          <Field label="Student Number" value={invSno} onChange={v=>{setInvSno(v);setInvFoundStudent(null);setInvPwd("");}} placeholder="e.g. 2021/001234" />
+          {invFoundStudent && <Field label="Password" value={invPwd} onChange={setInvPwd} placeholder="Enter your password" type="password" />}
+          <Btn onClick={() => {
+            if (!invFoundStudent) {
+              const found = (students||{})[invSno.trim()];
+              if (!found) return showToast("Student number not found.", "error");
+              setInvFoundStudent(found);
+            } else {
+              if (!invPwd.trim()) return showToast("Please enter your password", "error");
+              if (invPwd !== invFoundStudent.password) return showToast("Incorrect password", "error");
+              setInvStudent(invFoundStudent);
+              showToast("Welcome, " + invFoundStudent.name.split(" ")[0]);
+            }
+          }} label={invFoundStudent?"Enter Store":"Continue"} primary full />
+        </div>
+      </div>
+    );
+  }
+
+  // ── Lecturer entry ────────────────────────────────────────────────────────────
+  if (!currentLecturer && invRole === "lecturer") {
+    return (
+      <div style={S.center}>
+        <div style={S.card}>
+          <BackBtn onClick={() => setInvRole(null)} />
+          <h2 style={S.cardTitle}>Lecturer Access</h2>
+          <p style={S.cardSub}>Enter your PIN to continue.</p>
           <Field label="PIN" value={lecPin} onChange={setLecPin} placeholder="••••" type="password" />
           <Btn onClick={() => {
             const found = (lecturers||[]).find(l => l.pin === lecPin.trim());
-            if (!found) return showToast("Incorrect PIN","error");
+            if (!found) return showToast("Incorrect PIN", "error");
             setCurrentLecturer(found);
             showToast("Welcome, " + found.name);
-          }} label="Enter" primary full />
-          <p style={{textAlign:"center",marginTop:16,fontSize:12,color:"#475569"}}>
-            Students: <span style={{color:"#6366f1",cursor:"pointer"}} onClick={()=>setTab("request")}>Request an instrument</span>
-          </p>
+          }} label="Enter Store" primary full />
         </div>
+      </div>
+    );
+  }
+
+  // ── Student view (read + request) ────────────────────────────────────────────
+  if (invStudent && !currentLecturer) {
+    const activeLoansAll = (loans||[]).filter(l=>l.status==="active");
+    const condColor = (c) => c==="Good"?"#22c55e":c==="Fair"?"#f59e0b":"#ef4444";
+    return (
+      <div style={S.page}>
+        <div style={S.header}>
+          <div style={S.headerInner}>
+            <div>
+              <div style={S.headerTitle}>Instrument Store</div>
+              <div style={S.headerSub}>Welcome, {invStudent.name}</div>
+            </div>
+            <Btn onClick={()=>{setInvStudent(null);setInvRole(null);setView("splash");}} label="Exit" small />
+          </div>
+        </div>
+
+        {/* Student tabs */}
+        <div style={{...S.tabs,flexWrap:"wrap"}}>
+          {[["store","🏛 Store Room"],["holdings","🎓 Student Holdings"],["myloans","📋 My Requests"]].map(([t,l])=>(
+            <div key={t} style={{...S.tab,...(tab===t?S.tabActive:{})}} onClick={()=>setTab(t)}>
+              {l}
+            </div>
+          ))}
+        </div>
+
+        {/* Store Room — browse and request */}
+        {tab==="store" && (
+          <div style={S.listWrap}>
+            <div style={{...S.sectionHeader,background:"linear-gradient(135deg,#1e1b4b,#1e293b)",borderColor:"#3730a3",marginBottom:16}}>
+              <div style={{fontWeight:700,color:"#a5b4fc",fontSize:13}}>🏛 Department Store Room</div>
+              <div style={{fontSize:11,color:"#64748b",marginTop:2}}>Browse available instruments and request to borrow</div>
+            </div>
+            {(instruments||[]).length===0
+              ? <Empty msg="No instruments in the store room yet." />
+              : (instruments||[]).map(inst=>{
+                const onLoan=activeLoansAll.filter(l=>l.instId===inst.id).length;
+                const available=Math.max(0,inst.quantity-onLoan);
+                const myLoan=(loans||[]).find(l=>l.instId===inst.id&&l.borrowerId===invStudent.studentNo&&l.status==="active");
+                const myPending=(loans||[]).find(l=>l.instId===inst.id&&l.borrowerId===invStudent.studentNo&&l.status==="pending");
+                return (
+                  <div key={inst.id} style={S.formCard}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:14,color:"#e2e8f0"}}>{inst.name}</div>
+                        <div style={{fontSize:12,color:"#64748b"}}>{inst.type}</div>
+                      </div>
+                      <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,
+                        background:condColor(inst.condition)+"22",color:condColor(inst.condition)}}>
+                        {inst.condition}
+                      </span>
+                    </div>
+                    <div style={{fontSize:12,marginBottom:8,fontWeight:600,color:available>0?"#22c55e":"#ef4444"}}>
+                      {available>0?`${available} available`:"Currently unavailable"}
+                    </div>
+                    {myLoan&&<div style={{fontSize:12,color:"#f59e0b",marginBottom:6}}>✓ You currently have this instrument</div>}
+                    {myPending&&<div style={{fontSize:12,color:"#6366f1",marginBottom:6}}>⏳ Your request is pending approval</div>}
+                    {!myLoan&&!myPending&&available>0&&(
+                      requestInstId===inst.id
+                        ? <div>
+                            <input style={{...S.input,marginBottom:8,fontSize:13}}
+                              placeholder="Why do you need this instrument?"
+                              value={requestNote} onChange={e=>setRequestNote(e.target.value)} />
+                            <div style={{display:"flex",gap:6}}>
+                              <Btn onClick={()=>{
+                                if(!requestNote.trim())return showToast("Please describe your purpose","error");
+                                const loan={id:Date.now().toString(),instId:inst.id,borrowerName:invStudent.name,
+                                  borrowerId:invStudent.studentNo,borrowerType:"student",purpose:requestNote.trim(),
+                                  status:"pending",requestedAt:new Date().toISOString(),damageReports:[]};
+                                setLoans(prev=>[...(prev||[]),loan]);
+                                setRequestInstId(null); setRequestNote("");
+                                showToast("Request submitted — awaiting lecturer approval.");
+                              }} label="Submit Request" primary small />
+                              <Btn onClick={()=>{setRequestInstId(null);setRequestNote("");}} label="Cancel" small />
+                            </div>
+                          </div>
+                        : <Btn onClick={()=>setRequestInstId(inst.id)} label="📤 Request to Borrow" small />
+                    )}
+                  </div>
+                );
+              })
+            }
+          </div>
+        )}
+
+        {/* Student Holdings */}
+        {tab==="holdings" && (
+          <div style={S.listWrap}>
+            <div style={{...S.sectionHeader,background:"linear-gradient(135deg,#14532d,#1e293b)",borderColor:"#22c55e",marginBottom:16}}>
+              <div style={{fontWeight:700,color:"#86efac",fontSize:13}}>🎓 Instruments With Students</div>
+              <div style={{fontSize:11,color:"#64748b",marginTop:2}}>Department instruments declared by students</div>
+            </div>
+            {(studentInstruments||[]).length===0
+              ? <Empty msg="No students have declared instruments yet." />
+              : (studentInstruments||[]).map(inst=>{
+                const isMe=inst.studentNo===invStudent.studentNo;
+                return (
+                  <div key={inst.id} style={{...S.classCard,borderColor:isMe?"#6366f1":"#1e293b"}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,color:isMe?"#a5b4fc":"#e2e8f0"}}>{inst.name}</div>
+                      <div style={{fontSize:12,color:"#64748b"}}>{inst.type}</div>
+                      <div style={{fontSize:12,color:isMe?"#6366f1":"#94a3b8",marginTop:2}}>
+                        {isMe?"👤 You":"👤 "+inst.studentName}
+                      </div>
+                    </div>
+                    <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,flexShrink:0,
+                      background:condColor(inst.condition)+"22",color:condColor(inst.condition)}}>
+                      {inst.condition}
+                    </span>
+                  </div>
+                );
+              })
+            }
+          </div>
+        )}
+
+        {/* My Requests */}
+        {tab==="myloans" && (
+          <div style={S.listWrap}>
+            {(loans||[]).filter(l=>l.borrowerId===invStudent.studentNo).length===0
+              ? <Empty msg="You have no instrument requests yet." />
+              : [...(loans||[])].filter(l=>l.borrowerId===invStudent.studentNo).reverse().map(loan=>{
+                const inst=(instruments||[]).find(i=>i.id===loan.instId);
+                const statusColor=loan.status==="active"?"#f59e0b":loan.status==="pending"?"#6366f1":loan.status==="returned"?"#22c55e":"#ef4444";
+                return (
+                  <div key={loan.id} style={S.classCard}>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,color:"#e2e8f0"}}>{inst?.name||"Unknown"}</div>
+                      <div style={{fontSize:12,color:"#64748b"}}>{loan.purpose}</div>
+                      <div style={{fontSize:11,color:"#475569"}}>{new Date(loan.requestedAt).toLocaleDateString()}</div>
+                      {(loan.damageReports||[]).length>0&&(
+                        <div style={{fontSize:11,color:"#ef4444",marginTop:2}}>⚠ {loan.damageReports.length} damage report{loan.damageReports.length>1?"s":""}</div>
+                      )}
+                    </div>
+                    <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,flexShrink:0,
+                      background:statusColor+"22",color:statusColor,textTransform:"capitalize"}}>
+                      {loan.status}
+                    </span>
+                  </div>
+                );
+              })
+            }
+          </div>
+        )}
       </div>
     );
   }
@@ -1041,16 +1296,18 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
 
   return (
     <div style={S.page}>
-      <header style={S.header}>
-        <div>
-          <div style={S.headerTitle}>Instrument Store</div>
-          <div style={S.headerSub}>NOCEN Music Dept · {currentLecturer.name}
-            {isLecturerAdmin&&<span style={{marginLeft:6,fontSize:10,background:"#14532d",color:"#86efac",borderRadius:99,padding:"2px 6px"}}>In Charge</span>}
-            {!isLecturerAdmin&&<span style={{marginLeft:6,fontSize:10,background:"#1e293b",color:"#64748b",borderRadius:99,padding:"2px 6px"}}>View Only</span>}
+      <div style={S.header}>
+        <div style={S.headerInner}>
+          <div>
+            <div style={S.headerTitle}>Instrument Store</div>
+            <div style={S.headerSub}>NOCEN Music Dept · {currentLecturer.name}
+              {isLecturerAdmin&&<span style={{marginLeft:6,fontSize:10,background:"rgba(255,255,255,0.2)",color:"#fff",borderRadius:99,padding:"2px 6px"}}>In Charge</span>}
+              {!isLecturerAdmin&&<span style={{marginLeft:6,fontSize:10,background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.6)",borderRadius:99,padding:"2px 6px"}}>View Only</span>}
+            </div>
           </div>
+          <Btn onClick={()=>{setCurrentLecturer(null);setView("splash");}} label="Sign Out" small />
         </div>
-        <Btn onClick={()=>{setCurrentLecturer(null);setView("splash");}} label="Sign Out" small />
-      </header>
+      </div>
 
       {/* Summary chips */}
       <div style={S.chips}>
@@ -1345,7 +1602,7 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
       {tab==="add"&&isLecturerAdmin&&(
         <div style={S.listWrap}>
           <div style={S.formCard}>
-            <div style={{fontWeight:700,marginBottom:12,color:"#e2e8f0"}}>Add Instrument to Inventory</div>
+            <div style={{fontWeight:700,marginBottom:12,color:"#1e293b"}}>Add Instrument to Inventory</div>
             <Field label="Instrument Name" value={newInst.name} onChange={v=>setNewInst(p=>({...p,name:v}))} placeholder="e.g. Trumpet, Classical Guitar" />
             <div style={{marginBottom:16}}>
               <label style={S.label}>Type</label>
@@ -1376,51 +1633,52 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const S = {
-  root:{ minHeight:"100vh",background:"#0a0f1e",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:"#e2e8f0",position:"relative",overflowX:"hidden" },
-  grain:{ position:"fixed",inset:0,pointerEvents:"none",backgroundImage:`url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E")`,opacity:.6,zIndex:0 },
-  center:{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative",zIndex:1 },
-  splashCard:{ background:"linear-gradient(145deg,#111827,#0f172a)",border:"1px solid #1e293b",borderRadius:24,padding:48,textAlign:"center",maxWidth:380,width:"100%",boxShadow:"0 32px 64px rgba(0,0,0,.5)" },
-  logo:{ fontSize:52,marginBottom:12,filter:"drop-shadow(0 0 20px #6366f1aa)" },
-  logoCrest:{ width:100,height:100,borderRadius:"50%",background:"#f8f8f8",border:"3px solid #fbbf24",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",boxShadow:"0 0 28px rgba(251,191,36,0.4)",overflow:"hidden",padding:4 },
-  schoolName:{ fontSize:13,fontWeight:700,color:"#fbbf24",letterSpacing:"0.5px",textTransform:"uppercase",marginBottom:2 },
-  deptName:{ fontSize:11,color:"#86efac",marginBottom:16 },
-  copyright:{ marginTop:24,fontSize:11,color:"#334155",borderTop:"1px solid #1e293b",paddingTop:12 },
-  splashTitle:{ margin:0,fontSize:34,fontWeight:800,letterSpacing:"-1px",background:"linear-gradient(135deg,#818cf8,#c084fc)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" },
-  splashSub:{ color:"#475569",marginTop:8,fontSize:14 },
-  card:{ background:"#111827",border:"1px solid #1e293b",borderRadius:20,padding:32,maxWidth:420,width:"100%",boxShadow:"0 20px 40px rgba(0,0,0,.4)" },
-  cardTitle:{ margin:"0 0 6px",fontSize:22,fontWeight:700 },
+  root:{ minHeight:"100vh",background:"#f0f4ff",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:"#1e293b",position:"relative",overflowX:"hidden" },
+  grain:{ display:"none" },
+  center:{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:16,position:"relative",zIndex:1,background:"linear-gradient(135deg,#e0e7ff 0%,#f0f9ff 50%,#dbeafe 100%)" },
+  splashCard:{ background:"#ffffff",borderRadius:28,padding:48,textAlign:"center",maxWidth:400,width:"100%",boxShadow:"0 20px 60px rgba(59,130,246,0.15),0 4px 16px rgba(0,0,0,0.08)" },
+  logo:{ fontSize:52,marginBottom:12 },
+  logoCrest:{ width:100,height:100,borderRadius:"50%",background:"#f8faff",border:"3px solid #2563eb",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",boxShadow:"0 4px 20px rgba(37,99,235,0.25)",overflow:"hidden",padding:4 },
+  schoolName:{ fontSize:13,fontWeight:700,color:"#1d4ed8",letterSpacing:"0.5px",textTransform:"uppercase",marginBottom:2 },
+  deptName:{ fontSize:11,color:"#2563eb",marginBottom:16,opacity:0.7 },
+  copyright:{ marginTop:24,fontSize:11,color:"#94a3b8",borderTop:"1px solid #e2e8f0",paddingTop:12 },
+  splashTitle:{ margin:0,fontSize:34,fontWeight:800,letterSpacing:"-1px",background:"linear-gradient(135deg,#1d4ed8,#0ea5e9)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" },
+  splashSub:{ color:"#64748b",marginTop:8,fontSize:14 },
+  card:{ background:"#ffffff",borderRadius:20,padding:32,maxWidth:420,width:"100%",boxShadow:"0 8px 32px rgba(59,130,246,0.12),0 2px 8px rgba(0,0,0,0.06)" },
+  cardTitle:{ margin:"0 0 6px",fontSize:22,fontWeight:700,color:"#1e293b" },
   cardSub:{ color:"#64748b",fontSize:13,marginBottom:24 },
   page:{ maxWidth:620,margin:"0 auto",padding:"0 0 40px",position:"relative",zIndex:1 },
-  header:{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"20px 20px 0",marginBottom:20 },
-  headerTitle:{ fontSize:20,fontWeight:800,background:"linear-gradient(135deg,#818cf8,#c084fc)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent" },
-  headerSub:{ fontSize:12,color:"#475569" },
-  overallBar:{ display:"flex",alignItems:"center",background:"#111827",border:"1px solid #1e293b",borderRadius:16,padding:"16px 20px",margin:"0 16px 20px" },
-  tabs:{ display:"flex",gap:4,padding:"0 16px",marginBottom:12 },
-  tab:{ padding:"8px 16px",borderRadius:10,fontSize:13,cursor:"pointer",color:"#64748b",background:"transparent",userSelect:"none",position:"relative" },
-  tabActive:{ background:"#1e293b",color:"#e2e8f0",fontWeight:600 },
+  header:{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0",marginBottom:0,background:"linear-gradient(135deg,#1d4ed8,#0284c7)",color:"#fff" },
+  headerInner:{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 20px",width:"100%",marginBottom:20 },
+  headerTitle:{ fontSize:20,fontWeight:800,color:"#ffffff" },
+  headerSub:{ fontSize:12,color:"rgba(255,255,255,0.75)" },
+  overallBar:{ display:"flex",alignItems:"center",background:"#ffffff",borderRadius:16,padding:"16px 20px",margin:"0 16px 20px",boxShadow:"0 2px 12px rgba(59,130,246,0.1)" },
+  tabs:{ display:"flex",gap:4,padding:"0 16px",marginBottom:12,overflowX:"auto" },
+  tab:{ padding:"8px 16px",borderRadius:10,fontSize:13,cursor:"pointer",color:"#64748b",background:"transparent",userSelect:"none",position:"relative",whiteSpace:"nowrap",fontWeight:500 },
+  tabActive:{ background:"#1d4ed8",color:"#ffffff",fontWeight:700,boxShadow:"0 2px 8px rgba(29,78,216,0.3)" },
   listWrap:{ padding:"0 16px" },
-  classCard:{ display:"flex",alignItems:"center",gap:12,background:"#111827",border:"1px solid #1e293b",borderRadius:14,padding:"14px 16px",marginBottom:10 },
-  courseCard:{ background:"#111827",border:"1px solid #1e293b",borderRadius:14,padding:"14px 16px",marginBottom:10 },
-  formCard:{ background:"#111827",border:"1px solid #1e293b",borderRadius:14,padding:18,marginBottom:16 },
-  barBg:{ height:6,background:"#1e293b",borderRadius:99,overflow:"hidden",marginTop:6 },
+  classCard:{ display:"flex",alignItems:"center",gap:12,background:"#ffffff",border:"1px solid #e2e8f0",borderRadius:14,padding:"14px 16px",marginBottom:10,boxShadow:"0 1px 4px rgba(0,0,0,0.05)" },
+  courseCard:{ background:"#ffffff",border:"1px solid #e2e8f0",borderRadius:14,padding:"14px 16px",marginBottom:10,boxShadow:"0 1px 4px rgba(0,0,0,0.05)" },
+  formCard:{ background:"#ffffff",border:"1px solid #e2e8f0",borderRadius:14,padding:18,marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,0.05)" },
+  barBg:{ height:7,background:"#e2e8f0",borderRadius:99,overflow:"hidden",marginTop:6 },
   barFill:{ height:"100%",borderRadius:99,transition:"width .4s ease" },
-  btn:{ border:"none",borderRadius:10,padding:"10px 20px",fontSize:14,fontWeight:600,cursor:"pointer",transition:"opacity .15s",display:"inline-flex",alignItems:"center",justifyContent:"center" },
-  btnPrimary:{ background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff" },
-  btnSecondary:{ background:"#1e293b",color:"#94a3b8" },
-  btnDanger:{ background:"#7f1d1d",color:"#fca5a5" },
-  label:{ display:"block",fontSize:12,color:"#64748b",marginBottom:6 },
-  input:{ width:"100%",boxSizing:"border-box",background:"#0f172a",border:"1px solid #1e293b",borderRadius:10,padding:"10px 14px",color:"#e2e8f0",fontSize:14,outline:"none" },
-  select:{ background:"#0f172a",border:"1px solid #1e293b",borderRadius:10,padding:"10px 14px",color:"#e2e8f0",fontSize:13,outline:"none" },
-  badge:{ display:"inline-block",fontSize:10,background:"#1e293b",color:"#f59e0b",borderRadius:99,padding:"2px 8px",marginTop:4 },
-  badge2:{ display:"inline-block",background:"#f59e0b",color:"#000",borderRadius:99,fontSize:10,fontWeight:700,padding:"1px 6px",marginLeft:6 },
+  btn:{ border:"none",borderRadius:10,padding:"10px 20px",fontSize:14,fontWeight:600,cursor:"pointer",transition:"all .15s",display:"inline-flex",alignItems:"center",justifyContent:"center" },
+  btnPrimary:{ background:"linear-gradient(135deg,#1d4ed8,#0284c7)",color:"#fff",boxShadow:"0 2px 8px rgba(29,78,216,0.3)" },
+  btnSecondary:{ background:"#f1f5f9",color:"#475569",border:"1px solid #e2e8f0" },
+  btnDanger:{ background:"#fee2e2",color:"#dc2626",border:"1px solid #fecaca" },
+  label:{ display:"block",fontSize:12,color:"#64748b",marginBottom:6,fontWeight:500 },
+  input:{ width:"100%",boxSizing:"border-box",background:"#f8faff",border:"1.5px solid #dbeafe",borderRadius:10,padding:"10px 14px",color:"#1e293b",fontSize:14,outline:"none" },
+  select:{ background:"#f8faff",border:"1.5px solid #dbeafe",borderRadius:10,padding:"10px 14px",color:"#1e293b",fontSize:13,outline:"none" },
+  badge:{ display:"inline-block",fontSize:10,background:"#fef3c7",color:"#d97706",borderRadius:99,padding:"2px 8px",marginTop:4,fontWeight:600 },
+  badge2:{ display:"inline-block",background:"#dc2626",color:"#fff",borderRadius:99,fontSize:10,fontWeight:700,padding:"1px 6px",marginLeft:6 },
   chips:{ display:"flex",gap:10,padding:"0 16px",marginBottom:20 },
-  chip:{ flex:1,background:"#111827",border:"1px solid",borderRadius:14,padding:"12px 16px",textAlign:"center" },
-  overlay:{ position:"fixed",inset:0,background:"rgba(0,0,0,.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,padding:16 },
-  modal:{ background:"#111827",border:"1px solid #1e293b",borderRadius:20,padding:24,width:"100%",maxWidth:400 },
-  toast:{ position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",padding:"10px 24px",borderRadius:12,color:"#fff",fontSize:13,fontWeight:600,zIndex:200,boxShadow:"0 8px 24px rgba(0,0,0,.4)" },
-  courseChip:{ padding:"6px 14px",borderRadius:99,fontSize:12,cursor:"pointer",background:"#1e293b",color:"#64748b",border:"1px solid #1e293b" },
-  courseChipActive:{ background:"#312e81",color:"#a5b4fc",border:"1px solid #6366f1" },
-  todayBanner:{ display:"flex",alignItems:"center",gap:12,background:"linear-gradient(135deg,#1e1b4b,#1e293b)",border:"1px solid #3730a3",borderRadius:14,padding:"14px 16px",margin:"0 16px 16px" },
-  codeInput:{ width:110,background:"#0f172a",border:"2px solid #6366f1",borderRadius:8,padding:"8px 10px",color:"#a5b4fc",fontSize:18,fontWeight:800,letterSpacing:6,textAlign:"center",outline:"none" },
-  sectionHeader:{ border:"1px solid",borderRadius:12,padding:"12px 16px",marginBottom:12 },
+  chip:{ flex:1,background:"#ffffff",border:"2px solid",borderRadius:14,padding:"12px 16px",textAlign:"center",boxShadow:"0 1px 4px rgba(0,0,0,0.05)" },
+  overlay:{ position:"fixed",inset:0,background:"rgba(30,41,59,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,padding:16 },
+  modal:{ background:"#ffffff",borderRadius:20,padding:24,width:"100%",maxWidth:400,boxShadow:"0 20px 60px rgba(0,0,0,0.2)" },
+  toast:{ position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",padding:"10px 24px",borderRadius:12,color:"#fff",fontSize:13,fontWeight:600,zIndex:200,boxShadow:"0 8px 24px rgba(0,0,0,.2)" },
+  courseChip:{ padding:"6px 14px",borderRadius:99,fontSize:12,cursor:"pointer",background:"#f1f5f9",color:"#64748b",border:"1.5px solid #e2e8f0",fontWeight:500 },
+  courseChipActive:{ background:"#dbeafe",color:"#1d4ed8",border:"1.5px solid #1d4ed8",fontWeight:700 },
+  todayBanner:{ display:"flex",alignItems:"center",gap:12,background:"linear-gradient(135deg,#dbeafe,#e0f2fe)",border:"1.5px solid #93c5fd",borderRadius:14,padding:"14px 16px",margin:"0 16px 16px" },
+  codeInput:{ width:120,background:"#f0f9ff",border:"2.5px solid #1d4ed8",borderRadius:8,padding:"8px 10px",color:"#1d4ed8",fontSize:20,fontWeight:800,letterSpacing:6,textAlign:"center",outline:"none" },
+  sectionHeader:{ border:"1.5px solid",borderRadius:12,padding:"12px 16px",marginBottom:12 },
 };
