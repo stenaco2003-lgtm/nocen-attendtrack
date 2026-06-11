@@ -989,10 +989,12 @@ function Ring({ pct:p, size=60 }) {
 
 // ── Inventory Dashboard ───────────────────────────────────────────────────────
 function InventoryDash({ instruments, setInstruments, loans, setLoans, studentInstruments, students, lecturers, currentLecturer, setCurrentLecturer, setView, showToast, isAdmin }) {
-  const [lecPin, setLecPin]         = useState("");
-  const [invSno, setInvSno]         = useState("");
-  const [invRole, setInvRole]       = useState(null); // "student" | "lecturer"
-  const [invStudent, setInvStudent] = useState(null);
+  const [lecPin, setLecPin]               = useState("");
+  const [invSno, setInvSno]               = useState("");
+  const [invPwd, setInvPwd]               = useState("");
+  const [invFoundStudent, setInvFoundStudent] = useState(null);
+  const [invRole, setInvRole]             = useState(null); // "student" | "lecturer"
+  const [invStudent, setInvStudent]       = useState(null);
   const [tab, setTab]               = useState("inventory");
   const [showAddInst, setShowAddInst] = useState(false);
   const [newInst, setNewInst]       = useState({ name:"", type:"", serialNo:"", quantity:1, condition:"Good", location:"" });
@@ -1026,8 +1028,6 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
 
   // ── Student entry ────────────────────────────────────────────────────────────
   if (!currentLecturer && invRole === "student" && !invStudent) {
-    const [invPwd, setInvPwd] = useState("");
-    const [invFoundStudent, setInvFoundStudent] = useState(null);
     return (
       <div style={S.center}>
         <div style={S.card}>
