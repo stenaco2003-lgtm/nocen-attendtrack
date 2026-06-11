@@ -40,6 +40,9 @@ export default function App() {
   const [currentLecturer, setCurrentLecturer] = useState(null);
   const [toast, setToast]           = useState(null);
   const [loading, setLoading]       = useState(true);
+  const [instruments, setInstruments] = useState(null);  // inventory
+  const [loans, setLoans]             = useState(null);   // loan requests & active loans
+  const [studentInstruments, setStudentInstruments] = useState(null); // student declared instruments
 
   // Load from Firestore on mount — NEVER overwrite Firebase data with defaults
   useEffect(() => {
@@ -50,6 +53,9 @@ export default function App() {
       const p  = await fbGet("attendtrack/pending");   setPending(p   ?? {});
       const co = await fbGet("attendtrack/courses");   setCourses(co  ?? []);
       const lc = await fbGet("attendtrack/lecturers"); setLecturers(lc ?? DEFAULT_LECTURERS);
+      const inv = await fbGet("attendtrack/instruments"); setInstruments(inv ?? []);
+      const ln  = await fbGet("attendtrack/loans");       setLoans(ln ?? []);
+      const si  = await fbGet("attendtrack/studentInstruments"); setStudentInstruments(si ?? []);
       setLoading(false);
     })();
   }, []);
@@ -60,7 +66,10 @@ export default function App() {
   useEffect(() => { if (!loading && records   !== null) fbSet("attendtrack/records",   records);   }, [records,   loading]);
   useEffect(() => { if (!loading && pending   !== null) fbSet("attendtrack/pending",   pending);   }, [pending,   loading]);
   useEffect(() => { if (!loading && courses   !== null) fbSet("attendtrack/courses",   courses);   }, [courses,   loading]);
-  useEffect(() => { if (!loading && lecturers !== null) fbSet("attendtrack/lecturers", lecturers); }, [lecturers, loading]);
+  useEffect(() => { if (!loading && lecturers    !== null) fbSet("attendtrack/lecturers",  lecturers);   }, [lecturers,    loading]);
+  useEffect(() => { if (!loading && instruments !== null) fbSet("attendtrack/instruments", instruments); }, [instruments, loading]);
+  useEffect(() => { if (!loading && loans               !== null) fbSet("attendtrack/loans",             loans);             }, [loans,             loading]);
+  useEffect(() => { if (!loading && studentInstruments !== null) fbSet("attendtrack/studentInstruments", studentInstruments); }, [studentInstruments, loading]);
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -103,7 +112,18 @@ export default function App() {
       {view === "student"  && currentStudent && (
         <StudentDash student={currentStudent} classes={classes} confirmedClasses={confirmedClasses}
           records={records} pending={pending} setPending={setPending} courses={courses}
-          studentStats={studentStats} setView={setView} showToast={showToast} pct={pct} pctColor={pctColor} />
+          studentStats={studentStats} setView={setView} showToast={showToast} pct={pct} pctColor={pctColor}
+          studentInstruments={studentInstruments} setStudentInstruments={setStudentInstruments}
+          instruments={instruments} loans={loans} setLoans={setLoans} />
+      )}
+      {view === "inventory" && (
+        <InventoryDash
+          instruments={instruments} setInstruments={setInstruments}
+          loans={loans} setLoans={setLoans}
+          studentInstruments={studentInstruments}
+          students={students} lecturers={lecturers}
+          currentLecturer={currentLecturer} setCurrentLecturer={setCurrentLecturer}
+          setView={setView} showToast={showToast} isAdmin={currentLecturer?.isAdmin||false} />
       )}
       {view === "lecturer" && (
         <LecturerDash currentLecturer={currentLecturer} setCurrentLecturer={setCurrentLecturer}
@@ -133,6 +153,7 @@ function Splash({ setView }) {
         <div style={{ display:"flex", gap:12, marginTop:28, flexWrap:"wrap", justifyContent:"center" }}>
           <Btn onClick={() => setView("sign-in")} label="I'm a Student" icon="🎓" primary />
           <Btn onClick={() => setView("lecturer")} label="Lecturer Portal" icon="🔐" />
+          <Btn onClick={() => setView("inventory")} label="Instrument Store" icon="🎸" />
         </div>
         <div style={S.copyright}>© Nwafor Orizu College of Education 2026</div>
       </div>
@@ -208,7 +229,7 @@ function StudentCountdown({ expiresAt }) {
 }
 
 // ── Student Dashboard ─────────────────────────────────────────────────────────
-function StudentDash({ student, classes, confirmedClasses, records, pending, setPending, courses, studentStats, setView, showToast, pct, pctColor }) {
+function StudentDash({ student, classes, confirmedClasses, records, pending, setPending, courses, studentStats, setView, showToast, pct, pctColor, studentInstruments, setStudentInstruments, instruments, loans, setLoans }) {
   const [tab, setTab] = useState("attend");
   const [codeEntry, setCodeEntry] = useState({});
   const stats = studentStats(student.studentNo, courses);
@@ -257,10 +278,10 @@ function StudentDash({ student, classes, confirmedClasses, records, pending, set
           </div>
         </div>
       </div>
-      <div style={S.tabs}>
-        {["attend","overview"].map(t=>(
+      <div style={{...S.tabs,flexWrap:"wrap"}}>
+        {[["attend","📋 Attendance"],["overview","📊 Overview"],["store","🏛 Store"],["holdings","🎓 Holdings"],["instrument","🎸 My Instrument"]].map(([t,l])=>(
           <div key={t} style={{...S.tab,...(tab===t?S.tabActive:{})}} onClick={()=>setTab(t)}>
-            {t==="attend"?"📋 Sign Attendance":"📊 My Overview"}
+            {l}
           </div>
         ))}
       </div>
@@ -359,9 +380,10 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
   const [newClass, setNewClass] = useState({ courseCode:"", date:"", topic:"" });
   const [newCourse, setNewCourse]       = useState("");
   const [selectedStudent, setSelectedStudent] = useState(null);
-  const [nlName, setNlName]     = useState("");
-  const [nlPin, setNlPin]       = useState("");
+  const [nlName, setNlName]       = useState("");
+  const [nlPin, setNlPin]         = useState("");
   const [nlCourses, setNlCourses] = useState([]);
+  const [nlInCharge, setNlInCharge] = useState(false);
   const [curPin, setCurPin]     = useState("");
   const [newPin, setNewPin]     = useState("");
   const [confPin, setConfPin]   = useState("");
@@ -477,9 +499,9 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
   const addLecturer = () => {
     if (!nlName.trim()||!nlPin.trim()) return showToast("Name and PIN are required","error");
     if (lecturers.find(l=>l.pin===nlPin.trim())) return showToast("That PIN is already in use","error");
-    const lec={id:Date.now().toString(),name:nlName.trim(),pin:nlPin.trim(),courses:nlCourses,isAdmin:false};
+    const lec={id:Date.now().toString(),name:nlName.trim(),pin:nlPin.trim(),courses:nlCourses,isAdmin:false,instrumentInCharge:nlInCharge};
     setLecturers(prev=>[...prev,lec]);
-    setNlName(""); setNlPin(""); setNlCourses([]);
+    setNlName(""); setNlPin(""); setNlCourses([]); setNlInCharge(false);
     showToast("Lecturer added successfully.");
   };
 
@@ -686,6 +708,13 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
               </div>
               {courses.length===0&&<div style={{fontSize:12,color:"#475569"}}>No courses registered yet.</div>}
             </div>
+            <div style={{marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
+              <input type="checkbox" id="nlInCharge" checked={nlInCharge||false} onChange={e=>setNlInCharge(e.target.checked)}
+                style={{width:16,height:16,accentColor:"#6366f1",cursor:"pointer"}} />
+              <label htmlFor="nlInCharge" style={{...S.label,marginBottom:0,cursor:"pointer",color:"#e2e8f0"}}>
+                Instrument Store — Lecturer in Charge
+              </label>
+            </div>
             <Btn onClick={addLecturer} label="Add Lecturer" primary full />
           </div>
           {(lecturers||[]).map(lec=>(
@@ -696,9 +725,14 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                   <div style={{fontSize:12,color:"#94a3b8",marginTop:3}}>
                     {lec.isAdmin?"Admin — all courses":(Array.isArray(lec.courses)?lec.courses.join(", "):"All courses")}
                   </div>
+                  {lec.instrumentInCharge&&<span style={{fontSize:10,background:"#14532d",color:"#86efac",borderRadius:99,padding:"2px 8px",marginTop:4,display:"inline-block"}}>🎸 Instrument In Charge</span>}
                 </div>
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
                   {!lec.isAdmin&&<>
+                    <Btn onClick={()=>{
+                      setLecturers(prev=>prev.map(l=>l.id===lec.id?{...l,instrumentInCharge:!l.instrumentInCharge}:l));
+                      showToast(lec.instrumentInCharge?"Instrument In Charge role removed.":"Instrument In Charge role assigned.");
+                    }} label={lec.instrumentInCharge?"🎸 In Charge":"🎸 Set In Charge"} small />
                     <Btn onClick={()=>{setResetTarget(lec.id===resetTarget?null:lec.id);setResetNewPin("");}} label="Reset PIN" small />
                     <Btn onClick={()=>removeLecturer(lec.id)} label="Remove" small danger />
                   </>}
@@ -894,6 +928,453 @@ function Ring({ pct:p, size=60 }) {
   return <svg width={size} height={size} style={{flexShrink:0}}><circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1e293b" strokeWidth={7}/><circle cx={size/2} cy={size/2} r={r} fill="none" stroke={col} strokeWidth={7} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" transform={`rotate(-90 ${size/2} ${size/2})`}/><text x="50%" y="54%" textAnchor="middle" fill={col} fontSize={size*0.22} fontWeight="700">{p}%</text></svg>;
 }
 
+// ── Inventory Dashboard ───────────────────────────────────────────────────────
+function InventoryDash({ instruments, setInstruments, loans, setLoans, studentInstruments, students, lecturers, currentLecturer, setCurrentLecturer, setView, showToast, isAdmin }) {
+  const [lecPin, setLecPin]         = useState("");
+  const [tab, setTab]               = useState("inventory");
+  const [showAddInst, setShowAddInst] = useState(false);
+  const [newInst, setNewInst]       = useState({ name:"", type:"", serialNo:"", quantity:1, condition:"Good", location:"" });
+  const [requestInstId, setRequestInstId] = useState(null);
+  const [requestNote, setRequestNote] = useState("");
+  const [damageNote, setDamageNote] = useState({});
+  const [returnNote, setReturnNote] = useState({});
+
+  const CONDITIONS = ["Good","Fair","Poor","Under Repair","Damaged"];
+  const TYPES      = ["String","Wind","Keyboard","Percussion","Vocal","Other"];
+
+  // Login if not logged in
+  if (!currentLecturer) {
+    return (
+      <div style={S.center}>
+        <div style={S.card}>
+          <BackBtn onClick={() => setView("splash")} />
+          <h2 style={S.cardTitle}>Instrument Store</h2>
+          <p style={S.cardSub}>Enter your lecturer PIN to continue.</p>
+          <Field label="PIN" value={lecPin} onChange={setLecPin} placeholder="••••" type="password" />
+          <Btn onClick={() => {
+            const found = (lecturers||[]).find(l => l.pin === lecPin.trim());
+            if (!found) return showToast("Incorrect PIN","error");
+            setCurrentLecturer(found);
+            showToast("Welcome, " + found.name);
+          }} label="Enter" primary full />
+          <p style={{textAlign:"center",marginTop:16,fontSize:12,color:"#475569"}}>
+            Students: <span style={{color:"#6366f1",cursor:"pointer"}} onClick={()=>setTab("request")}>Request an instrument</span>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const isLecturerAdmin = currentLecturer.isAdmin || currentLecturer.courses==="__all__" || currentLecturer.instrumentInCharge===true;
+
+  const addInstrument = () => {
+    if (!newInst.name.trim()) return showToast("Instrument name is required","error");
+    const inst = { id: Date.now().toString(), ...newInst, quantity: Number(newInst.quantity), addedAt: new Date().toISOString(), damageHistory:[] };
+    setInstruments(prev => [...(prev||[]), inst]);
+    setNewInst({ name:"", type:"", serialNo:"", quantity:1, condition:"Good", location:"" });
+    setShowAddInst(false);
+    showToast("Instrument added to inventory.");
+  };
+
+  const updateCondition = (id, condition) => {
+    setInstruments(prev => (prev||[]).map(i => i.id===id ? {...i, condition} : i));
+    showToast("Condition updated.");
+  };
+
+  const deleteInstrument = (id) => {
+    setInstruments(prev => (prev||[]).filter(i => i.id!==id));
+    showToast("Instrument removed.");
+  };
+
+  const requestInstrument = (instId) => {
+    if (!requestNote.trim()) return showToast("Please describe your purpose","error");
+    const loan = {
+      id: Date.now().toString(), instId,
+      borrowerName: currentLecturer.name,
+      borrowerId: currentLecturer.id,
+      borrowerType: "lecturer",
+      purpose: requestNote.trim(),
+      status: "pending",
+      requestedAt: new Date().toISOString(),
+      damageReports: []
+    };
+    setLoans(prev => [...(prev||[]), loan]);
+    setRequestInstId(null); setRequestNote("");
+    showToast("Request submitted — waiting for approval.");
+  };
+
+  const approveLoan = (loanId) => {
+    setLoans(prev => (prev||[]).map(l => l.id===loanId ? {...l, status:"active", approvedAt:new Date().toISOString(), approvedBy:currentLecturer.name} : l));
+    showToast("Loan approved — instrument signed out.");
+  };
+
+  const rejectLoan = (loanId) => {
+    setLoans(prev => (prev||[]).map(l => l.id===loanId ? {...l, status:"rejected"} : l));
+    showToast("Request rejected.");
+  };
+
+  const returnInstrument = (loanId) => {
+    const note = returnNote[loanId]||"";
+    setLoans(prev => (prev||[]).map(l => l.id===loanId ? {...l, status:"returned", returnedAt:new Date().toISOString(), returnNote:note} : l));
+    setReturnNote(prev => { const n={...prev}; delete n[loanId]; return n; });
+    showToast("Instrument returned and recorded.");
+  };
+
+  const reportDamage = (loanId, reporter) => {
+    const note = damageNote[loanId]||"";
+    if (!note.trim()) return showToast("Please describe the damage","error");
+    setLoans(prev => (prev||[]).map(l => l.id===loanId ? {
+      ...l,
+      damageReports: [...(l.damageReports||[]), { note, reporter, reportedAt:new Date().toISOString() }]
+    } : l));
+    setDamageNote(prev => { const n={...prev}; delete n[loanId]; return n; });
+    showToast("Damage report recorded.");
+  };
+
+  const pendingLoans  = (loans||[]).filter(l=>l.status==="pending");
+  const activeLoans   = (loans||[]).filter(l=>l.status==="active");
+  const returnedLoans = (loans||[]).filter(l=>l.status==="returned"||l.status==="rejected");
+
+  const getInst = (id) => (instruments||[]).find(i=>i.id===id);
+
+  const condColor = (c) => c==="Good"?"#22c55e":c==="Fair"?"#f59e0b":c==="Poor"?"#ef4444":c==="Under Repair"?"#6366f1":"#ef4444";
+
+  return (
+    <div style={S.page}>
+      <header style={S.header}>
+        <div>
+          <div style={S.headerTitle}>Instrument Store</div>
+          <div style={S.headerSub}>NOCEN Music Dept · {currentLecturer.name}
+            {isLecturerAdmin&&<span style={{marginLeft:6,fontSize:10,background:"#14532d",color:"#86efac",borderRadius:99,padding:"2px 6px"}}>In Charge</span>}
+            {!isLecturerAdmin&&<span style={{marginLeft:6,fontSize:10,background:"#1e293b",color:"#64748b",borderRadius:99,padding:"2px 6px"}}>View Only</span>}
+          </div>
+        </div>
+        <Btn onClick={()=>{setCurrentLecturer(null);setView("splash");}} label="Sign Out" small />
+      </header>
+
+      {/* Summary chips */}
+      <div style={S.chips}>
+        <Chip label="In Store" value={(instruments||[]).reduce((a,i)=>a+Number(i.quantity||1),0)} color="#6366f1" />
+        <Chip label="With Students" value={(studentInstruments||[]).length} color="#22c55e" />
+        <Chip label="On Loan" value={activeLoans.length} color="#f59e0b" />
+      </div>
+
+      {/* Tabs */}
+      <div style={{...S.tabs,flexWrap:"wrap"}}>
+        {[
+          ["inventory","🎸 Inventory"],
+          ["loans","📋 Active Loans"],
+          ["history","🕐 History"],
+          ["students","👥 Student Records"],
+          ...(isLecturerAdmin?[["add","➕ Add Instrument"]]:[]),
+        ].map(([t,l])=>(
+          <div key={t} style={{...S.tab,...(tab===t?S.tabActive:{})}} onClick={()=>setTab(t)}>
+            {l}{t==="pending"&&pendingLoans.length>0&&<span style={S.badge2}>{pendingLoans.length}</span>}
+          </div>
+        ))}
+      </div>
+
+      {/* ── INVENTORY TAB ── */}
+      {tab==="inventory" && (
+        <div style={S.listWrap}>
+
+          {/* Pending loan requests */}
+          {pendingLoans.length>0&&isLecturerAdmin&&(
+            <div style={{...S.formCard,borderColor:"#f59e0b",marginBottom:16}}>
+              <div style={{fontWeight:700,color:"#f59e0b",marginBottom:8}}>⏳ {pendingLoans.length} Pending Loan Request{pendingLoans.length>1?"s":""}</div>
+              {pendingLoans.map(loan=>{
+                const inst=getInst(loan.instId);
+                return (
+                  <div key={loan.id} style={{borderBottom:"1px solid #1e293b",paddingBottom:10,marginBottom:10}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#e2e8f0"}}>{loan.borrowerName}</div>
+                    <div style={{fontSize:12,color:"#94a3b8"}}>wants: {inst?.name||"Unknown"} · {loan.purpose}</div>
+                    <div style={{display:"flex",gap:6,marginTop:6}}>
+                      <Btn onClick={()=>approveLoan(loan.id)} label="✓ Approve" primary small />
+                      <Btn onClick={()=>rejectLoan(loan.id)} label="✗ Reject" small danger />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── SECTION A: DEPARTMENT STORE ── */}
+          <div style={{...S.sectionHeader, background:"linear-gradient(135deg,#1e1b4b,#1e293b)", borderColor:"#3730a3"}}>
+            <div style={{fontWeight:700,color:"#a5b4fc",fontSize:13}}>🏛 Department Store Room</div>
+            <div style={{fontSize:11,color:"#64748b",marginTop:2}}>Instruments physically in the department — entered by lecturer in charge</div>
+          </div>
+
+          {(instruments||[]).length===0
+            ? <div style={{textAlign:"center",color:"#475569",padding:"20px 0",fontSize:13}}>
+                No store room instruments recorded yet.
+                {isLecturerAdmin&&<div style={{marginTop:8}}><Btn onClick={()=>setTab("add")} label="➕ Add Instrument" small /></div>}
+              </div>
+            : (instruments||[]).map(inst=>{
+              const onLoan = activeLoans.filter(l=>l.instId===inst.id).length;
+              const available = Math.max(0, inst.quantity - onLoan);
+              return (
+                <div key={inst.id} style={S.formCard}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:15,color:"#e2e8f0"}}>{inst.name}</div>
+                      <div style={{fontSize:12,color:"#64748b"}}>{inst.type}{inst.serialNo?" · S/N: "+inst.serialNo:""}</div>
+                      {inst.location&&<div style={{fontSize:12,color:"#64748b"}}>📍 {inst.location}</div>}
+                    </div>
+                    <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,
+                      background:condColor(inst.condition)+"22",color:condColor(inst.condition)}}>
+                      {inst.condition}
+                    </span>
+                  </div>
+                  <div style={{display:"flex",gap:16,marginBottom:10,flexWrap:"wrap"}}>
+                    <div style={{fontSize:12,color:"#94a3b8"}}>Qty: <b style={{color:"#e2e8f0"}}>{inst.quantity}</b></div>
+                    <div style={{fontSize:12,color:"#94a3b8"}}>On loan: <b style={{color:"#f59e0b"}}>{onLoan}</b></div>
+                    <div style={{fontSize:12,color:"#94a3b8"}}>Available: <b style={{color:available>0?"#22c55e":"#ef4444"}}>{available}</b></div>
+                  </div>
+                  {isLecturerAdmin&&(
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+                      <select style={{...S.select,padding:"4px 8px",fontSize:12}} value={inst.condition}
+                        onChange={e=>updateCondition(inst.id,e.target.value)}>
+                        {CONDITIONS.map(c=><option key={c}>{c}</option>)}
+                      </select>
+                      <Btn onClick={()=>deleteInstrument(inst.id)} label="🗑 Remove" small danger />
+                    </div>
+                  )}
+                  {available>0&&(
+                    requestInstId===inst.id
+                      ? <div style={{marginTop:8}}>
+                          <input style={{...S.input,marginBottom:8}} placeholder="Purpose / reason for borrowing"
+                            value={requestNote} onChange={e=>setRequestNote(e.target.value)} />
+                          <div style={{display:"flex",gap:6}}>
+                            <Btn onClick={()=>requestInstrument(inst.id)} label="Submit Request" primary small />
+                            <Btn onClick={()=>{setRequestInstId(null);setRequestNote("");}} label="Cancel" small />
+                          </div>
+                        </div>
+                      : <Btn onClick={()=>setRequestInstId(inst.id)} label="📤 Request to Borrow" small />
+                  )}
+                  {available===0&&<div style={{fontSize:12,color:"#ef4444",marginTop:4}}>All units currently on loan</div>}
+                </div>
+              );
+            })
+          }
+
+          {/* ── SECTION B: INSTRUMENTS WITH STUDENTS ── */}
+          <div style={{...S.sectionHeader, background:"linear-gradient(135deg,#14532d,#1e293b)", borderColor:"#22c55e", marginTop:16}}>
+            <div style={{fontWeight:700,color:"#86efac",fontSize:13}}>🎓 Instruments With Students</div>
+            <div style={{fontSize:11,color:"#64748b",marginTop:2}}>Declared by students — department-issued instruments in student possession</div>
+          </div>
+
+          {(studentInstruments||[]).length===0
+            ? <div style={{textAlign:"center",color:"#475569",padding:"20px 0",fontSize:13}}>No students have declared instruments yet.</div>
+            : (studentInstruments||[]).map(inst=>(
+              <div key={inst.id} style={{...S.classCard}}>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,color:"#e2e8f0"}}>{inst.name}</div>
+                  <div style={{fontSize:12,color:"#94a3b8"}}>{inst.type}{inst.serialNo?" · S/N: "+inst.serialNo:""}</div>
+                  <div style={{fontSize:12,color:"#6366f1",marginTop:2}}>👤 {inst.studentName} · {inst.studentNo}</div>
+                  {(inst.damageReports||[]).length>0&&(
+                    <div style={{fontSize:11,color:"#ef4444",marginTop:2}}>⚠ {inst.damageReports.length} damage report{inst.damageReports.length>1?"s":""}</div>
+                  )}
+                </div>
+                <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,flexShrink:0,
+                  background:condColor(inst.condition)+"22",color:condColor(inst.condition)}}>
+                  {inst.condition}
+                </span>
+              </div>
+            ))
+          }
+
+        </div>
+      )}
+
+      {/* ── ACTIVE LOANS TAB ── */}
+      {tab==="loans" && (
+        <div style={S.listWrap}>
+          {activeLoans.length===0?<Empty msg="No instruments currently on loan."/>:
+            activeLoans.map(loan=>{
+              const inst=getInst(loan.instId);
+              const isMyLoan = loan.borrowerId===currentLecturer.id;
+              return (
+                <div key={loan.id} style={S.formCard}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={{fontWeight:700,color:"#e2e8f0"}}>{inst?.name||"Unknown"}</div>
+                      <div style={{fontSize:12,color:"#94a3b8"}}>Borrowed by: {loan.borrowerName}</div>
+                      <div style={{fontSize:12,color:"#64748b"}}>Purpose: {loan.purpose}</div>
+                      <div style={{fontSize:11,color:"#475569"}}>Since: {new Date(loan.approvedAt).toLocaleDateString()}</div>
+                    </div>
+                    <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,background:"#f59e0b22",color:"#f59e0b"}}>On Loan</span>
+                  </div>
+
+                  {/* Damage reports */}
+                  {(loan.damageReports||[]).length>0&&(
+                    <div style={{marginTop:8,background:"#7f1d1d22",borderRadius:8,padding:"8px 10px"}}>
+                      <div style={{fontSize:11,color:"#ef4444",fontWeight:700,marginBottom:4}}>⚠ Damage Reports</div>
+                      {loan.damageReports.map((r,i)=>(
+                        <div key={i} style={{fontSize:12,color:"#fca5a5",marginBottom:2}}>{r.reporter}: {r.note}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Report damage — borrower or admin */}
+                  {(isMyLoan||isLecturerAdmin)&&(
+                    <div style={{marginTop:8}}>
+                      <input style={{...S.input,marginBottom:6,fontSize:12}} placeholder="Report damage (describe issue)..."
+                        value={damageNote[loan.id]||""}
+                        onChange={e=>setDamageNote(prev=>({...prev,[loan.id]:e.target.value}))} />
+                      <Btn onClick={()=>reportDamage(loan.id, currentLecturer.name)} label="⚠ Report Damage" small danger />
+                    </div>
+                  )}
+
+                  {/* Return — admin only */}
+                  {isLecturerAdmin&&(
+                    <div style={{marginTop:8,borderTop:"1px solid #1e293b",paddingTop:8}}>
+                      <input style={{...S.input,marginBottom:6,fontSize:12}} placeholder="Return note / condition on return (optional)"
+                        value={returnNote[loan.id]||""}
+                        onChange={e=>setReturnNote(prev=>({...prev,[loan.id]:e.target.value}))} />
+                      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                        <select style={{...S.select,padding:"4px 8px",fontSize:12}} onChange={e=>updateCondition(loan.instId,e.target.value)}>
+                          {CONDITIONS.map(c=><option key={c}>{c}</option>)}
+                        </select>
+                        <Btn onClick={()=>returnInstrument(loan.id)} label="✓ Record Return" primary small />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          }
+        </div>
+      )}
+
+      {/* ── HISTORY TAB ── */}
+      {tab==="history" && (
+        <div style={S.listWrap}>
+          {returnedLoans.length===0?<Empty msg="No returned or rejected loans yet."/>:
+            [...returnedLoans].reverse().map(loan=>{
+              const inst=getInst(loan.instId);
+              return (
+                <div key={loan.id} style={{...S.classCard,flexDirection:"column",alignItems:"flex-start"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",width:"100%"}}>
+                    <div>
+                      <div style={{fontWeight:700,color:"#e2e8f0"}}>{inst?.name||"Unknown"}</div>
+                      <div style={{fontSize:12,color:"#94a3b8"}}>{loan.borrowerName} · {loan.purpose}</div>
+                      <div style={{fontSize:11,color:"#475569"}}>
+                        {loan.status==="returned"
+                          ? `Returned: ${new Date(loan.returnedAt).toLocaleDateString()}`
+                          : "Rejected"}
+                      </div>
+                    </div>
+                    <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,
+                      background:loan.status==="returned"?"#14532d22":"#7f1d1d22",
+                      color:loan.status==="returned"?"#22c55e":"#ef4444"}}>
+                      {loan.status==="returned"?"Returned":"Rejected"}
+                    </span>
+                  </div>
+                  {(loan.damageReports||[]).length>0&&(
+                    <div style={{marginTop:6,fontSize:12,color:"#ef4444"}}>
+                      ⚠ {loan.damageReports.length} damage report{loan.damageReports.length>1?"s":""}
+                    </div>
+                  )}
+                  {loan.returnNote&&<div style={{fontSize:12,color:"#64748b",marginTop:4}}>Note: {loan.returnNote}</div>}
+                </div>
+              );
+            })
+          }
+        </div>
+      )}
+
+      {/* ── STUDENT RECORDS TAB ── */}
+      {tab==="students"&&(
+        <div style={S.listWrap}>
+          {(studentInstruments||[]).length===0
+            ? <Empty msg="No students have registered instruments yet."/>
+            : <>
+                {/* Summary by type */}
+                <div style={S.formCard}>
+                  <div style={{fontWeight:700,color:"#e2e8f0",marginBottom:10}}>Department Instrument Summary</div>
+                  {["String","Wind","Keyboard","Percussion","Vocal","Other"].map(type=>{
+                    const count=(studentInstruments||[]).filter(i=>i.type===type).length;
+                    if(!count) return null;
+                    return <div key={type} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e293b",fontSize:13}}>
+                      <span style={{color:"#cbd5e1"}}>{type}</span>
+                      <span style={{color:"#6366f1",fontWeight:700}}>{count}</span>
+                    </div>;
+                  })}
+                  <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",fontSize:13,fontWeight:700}}>
+                    <span style={{color:"#e2e8f0"}}>Total</span>
+                    <span style={{color:"#22c55e"}}>{(studentInstruments||[]).length}</span>
+                  </div>
+                </div>
+                {/* Export button */}
+                <Btn onClick={()=>{
+                  const rows=[["Student Name","Student No","Instrument","Type","Serial No","Condition","Registered","Notes","Damage Reports"]];
+                  (studentInstruments||[]).forEach(i=>{
+                    rows.push([i.studentName,i.studentNo,i.name,i.type,i.serialNo||"",i.condition,new Date(i.registeredAt).toLocaleDateString(),i.notes||"",(i.damageReports||[]).length]);
+                  });
+                  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("
+");
+                  const blob=new Blob([csv],{type:"text/csv"});
+                  const url=URL.createObjectURL(blob);
+                  const a=document.createElement("a"); a.href=url; a.download=`NOCEN_Instrument_Register_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
+                  showToast("Instrument register exported!");
+                }} label="📥 Export Instrument Register" primary full style={{marginBottom:12}} />
+                {/* Individual records */}
+                {[...(studentInstruments||[])].sort((a,b)=>a.studentName.localeCompare(b.studentName)).map(inst=>{
+                  const condColor=(c)=>c==="Good"?"#22c55e":c==="Fair"?"#f59e0b":"#ef4444";
+                  return (
+                    <div key={inst.id} style={S.classCard}>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:700}}>{inst.studentName}</div>
+                        <div style={{fontSize:12,color:"#94a3b8"}}>{inst.studentNo}</div>
+                        <div style={{fontSize:13,color:"#cbd5e1",marginTop:4}}>{inst.name} · {inst.type}</div>
+                        {inst.serialNo&&<div style={{fontSize:11,color:"#475569"}}>S/N: {inst.serialNo}</div>}
+                        {(inst.damageReports||[]).length>0&&<div style={{fontSize:11,color:"#ef4444",marginTop:2}}>⚠ {inst.damageReports.length} damage report{inst.damageReports.length>1?"s":""}</div>}
+                      </div>
+                      <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,
+                        background:condColor(inst.condition)+"22",color:condColor(inst.condition),flexShrink:0}}>
+                        {inst.condition}
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+          }
+        </div>
+      )}
+
+      {/* ── ADD INSTRUMENT TAB (admin only) ── */}
+      {tab==="add"&&isLecturerAdmin&&(
+        <div style={S.listWrap}>
+          <div style={S.formCard}>
+            <div style={{fontWeight:700,marginBottom:12,color:"#e2e8f0"}}>Add Instrument to Inventory</div>
+            <Field label="Instrument Name" value={newInst.name} onChange={v=>setNewInst(p=>({...p,name:v}))} placeholder="e.g. Trumpet, Classical Guitar" />
+            <div style={{marginBottom:16}}>
+              <label style={S.label}>Type</label>
+              <select style={S.select} value={newInst.type} onChange={e=>setNewInst(p=>({...p,type:e.target.value}))}>
+                <option value="">Select type</option>
+                {TYPES.map(t=><option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <Field label="Serial Number (optional)" value={newInst.serialNo} onChange={v=>setNewInst(p=>({...p,serialNo:v}))} placeholder="e.g. TRP-2024-001" />
+            <div style={{marginBottom:16}}>
+              <label style={S.label}>Quantity</label>
+              <input type="number" min="1" style={S.input} value={newInst.quantity} onChange={e=>setNewInst(p=>({...p,quantity:e.target.value}))} />
+            </div>
+            <div style={{marginBottom:16}}>
+              <label style={S.label}>Condition</label>
+              <select style={S.select} value={newInst.condition} onChange={e=>setNewInst(p=>({...p,condition:e.target.value}))}>
+                {CONDITIONS.map(c=><option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <Field label="Storage Location (optional)" value={newInst.location} onChange={v=>setNewInst(p=>({...p,location:v}))} placeholder="e.g. Music Store Room 1" />
+            <Btn onClick={addInstrument} label="Add to Inventory" primary full />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Styles ────────────────────────────────────────────────────────────────────
 const S = {
   root:{ minHeight:"100vh",background:"#0a0f1e",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:"#e2e8f0",position:"relative",overflowX:"hidden" },
@@ -942,4 +1423,5 @@ const S = {
   courseChipActive:{ background:"#312e81",color:"#a5b4fc",border:"1px solid #6366f1" },
   todayBanner:{ display:"flex",alignItems:"center",gap:12,background:"linear-gradient(135deg,#1e1b4b,#1e293b)",border:"1px solid #3730a3",borderRadius:14,padding:"14px 16px",margin:"0 16px 16px" },
   codeInput:{ width:110,background:"#0f172a",border:"2px solid #6366f1",borderRadius:8,padding:"8px 10px",color:"#a5b4fc",fontSize:18,fontWeight:800,letterSpacing:6,textAlign:"center",outline:"none" },
+  sectionHeader:{ border:"1px solid",borderRadius:12,padding:"12px 16px",marginBottom:12 },
 };
