@@ -1311,8 +1311,7 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
                   (studentInstruments||[]).forEach(i=>{
                     rows.push([i.studentName,i.studentNo,i.name,i.type,i.serialNo||"",i.condition,new Date(i.registeredAt).toLocaleDateString(),i.notes||"",(i.damageReports||[]).length]);
                   });
-                  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("
-");
+                  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
                   const blob=new Blob([csv],{type:"text/csv"});
                   const url=URL.createObjectURL(blob);
                   const a=document.createElement("a"); a.href=url; a.download=`NOCEN_Instrument_Register_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
