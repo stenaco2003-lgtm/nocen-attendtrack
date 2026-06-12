@@ -1005,18 +1005,36 @@ function StudentModal({ student, studentStats, courses, pct, pctColor, onClose, 
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={e=>e.stopPropagation()}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
           <div>
-            <div style={{fontWeight:700,fontSize:17,color:"#f1f5f9"}}>{student.name}</div>
+            <div style={{fontWeight:800,fontSize:17,color:"#1e3a5f"}}>{student.name}</div>
             <div style={{fontSize:13,color:"#1e40af"}}>{student.studentNo}</div>
+            <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,display:"inline-block",marginTop:5,
+              background:isBorrowed?"#e0f2fe":"#dbeafe",color:isBorrowed?"#0369a1":"#1d4ed8"}}>
+              {isBorrowed?"📚 Borrowed Course":"🎵 Music Department"}
+            </span>
           </div>
-          <span style={{cursor:"pointer",fontSize:20,color:"#1e40af"}} onClick={onClose}>✕</span>
+          <span style={{cursor:"pointer",fontSize:20,color:"#94a3b8"}} onClick={onClose}>✕</span>
         </div>
+        {onMoveDept&&(
+          <div onClick={()=>{onMoveDept(student);onClose();}}
+            style={{marginBottom:16,padding:"10px 14px",borderRadius:10,cursor:"pointer",textAlign:"center",fontSize:13,fontWeight:700,
+              background:isBorrowed?"#dbeafe":"#e0f2fe",color:isBorrowed?"#1d4ed8":"#0369a1",
+              border:isBorrowed?"2px solid #1d4ed8":"2px solid #0891b2"}}>
+            {isBorrowed?"🎵 Move to Music Department":"📚 Move to Borrowed Course"}
+          </div>
+        )}
         {courses.map(code=>{ const s=stats[code]; const p=pct(s.attended,s.total); return (
-          <div key={code} style={{marginBottom:14}}>
-            <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:14,color:"#1e40af"}}>{code}</span><span style={{color:pctColor(p),fontWeight:700}}>{p}%</span></div>
+          <div key={code} style={{marginBottom:14,borderLeft:`3px solid ${pctColor(p)}`,paddingLeft:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:13,fontWeight:700,color:"#1e3a5f"}}>{code}</span>
+              <span style={{color:pctColor(p),fontWeight:800,fontSize:16}}>{p}%</span>
+            </div>
             <div style={S.barBg}><div style={{...S.barFill,width:p+"%",background:pctColor(p)}}/></div>
-            <div style={{fontSize:11,color:"#1e40af"}}>{s.attended}/{s.total} classes</div>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+              <span style={{fontSize:11,color:"#1e40af"}}>{s.attended}/{s.total} classes</span>
+              <span style={{fontSize:10,fontWeight:700,color:pctColor(p)}}>{s.total===0?"—":p>=70?"✓ OK":"⚠ Below 70%"}</span>
+            </div>
           </div>
         );})}
       </div>
