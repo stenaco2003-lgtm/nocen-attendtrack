@@ -746,24 +746,62 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
 
       {tab==="students" && (
         <div style={S.listWrap}>
-          {Object.values(students||{}).length===0?<Empty msg="No students registered yet."/>:
-            Object.values(students||{}).map(s=>{
+          {Object.values(students||{}).length===0 ? <Empty msg="No students registered yet." /> : <>
+
+            <div style={{...S.sectionHeader,background:"linear-gradient(135deg,#dbeafe,#e0f2fe)",borderColor:"#3b82f6",marginBottom:10}}>
+              <div style={{fontWeight:800,color:"#1d4ed8",fontSize:13}}>🎵 Music Department Students</div>
+              <div style={{fontSize:11,color:"#1e40af",marginTop:2}}>{Object.values(students||{}).filter(s=>!s.department||s.department==="music").length} students</div>
+            </div>
+            {Object.values(students||{}).filter(s=>!s.department||s.department==="music").map(s=>{
               const stats=studentStats(s.studentNo,myCourses);
               let tot=0,att=0; Object.values(stats).forEach(x=>{tot+=x.total;att+=x.attended;});
               const p=pct(att,tot);
               return (
-                <div key={s.studentNo} style={{...S.classCard,cursor:"pointer"}} onClick={()=>setSelectedStudent(s)}>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:700}}>{s.name}</div>
-                    <div style={{fontSize:12,color:"#4b6cb7"}}>{s.studentNo}</div>
+                <div key={s.studentNo} style={{...S.classCard,marginBottom:8,gap:8}}>
+                  <div style={{flex:1,cursor:"pointer",minWidth:0}} onClick={()=>setSelectedStudent(s)}>
+                    <div style={{fontWeight:700,color:"#1e3a5f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
+                    <div style={{fontSize:12,color:"#1e40af"}}>{s.studentNo}</div>
                   </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{color:pctColor(p),fontWeight:700,fontSize:18}}>{p}%</div>
-                    <div style={{fontSize:11,color:"#1e40af"}}>overall</div>
+                  <div style={{textAlign:"right",cursor:"pointer",flexShrink:0}} onClick={()=>setSelectedStudent(s)}>
+                    <div style={{color:pctColor(p),fontWeight:800,fontSize:17}}>{p}%</div>
+                  </div>
+                  <div onClick={()=>{setStudents(prev=>({...prev,[s.studentNo]:{...s,department:"borrowed"}}));showToast(s.name+" moved to Borrowed Course.");}}
+                    style={{fontSize:11,color:"#0369a1",cursor:"pointer",padding:"6px 10px",background:"#e0f2fe",borderRadius:8,whiteSpace:"nowrap",fontWeight:700,border:"1px solid #7dd3fc",flexShrink:0}}>
+                    📚 Borrowed
                   </div>
                 </div>
               );
             })}
+
+            <div style={{...S.sectionHeader,background:"linear-gradient(135deg,#e0f2fe,#ecfdf5)",borderColor:"#0891b2",marginTop:16,marginBottom:10}}>
+              <div style={{fontWeight:800,color:"#0369a1",fontSize:13}}>📚 Borrowed Course Students</div>
+              <div style={{fontSize:11,color:"#0369a1",marginTop:2,opacity:0.8}}>{Object.values(students||{}).filter(s=>s.department==="borrowed").length} students · other departments</div>
+            </div>
+            {Object.values(students||{}).filter(s=>s.department==="borrowed").length===0
+              ? <div style={{textAlign:"center",color:"#4b6cb7",padding:"10px 0",fontSize:13}}>No borrowed course students yet.</div>
+              : Object.values(students||{}).filter(s=>s.department==="borrowed").map(s=>{
+                const stats=studentStats(s.studentNo,myCourses);
+                let tot=0,att=0; Object.values(stats).forEach(x=>{tot+=x.total;att+=x.attended;});
+                const p=pct(att,tot);
+                return (
+                  <div key={s.studentNo} style={{...S.classCard,borderColor:"#7dd3fc",marginBottom:8,gap:8}}>
+                    <div style={{flex:1,cursor:"pointer",minWidth:0}} onClick={()=>setSelectedStudent(s)}>
+                      <div style={{fontWeight:700,color:"#0369a1",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
+                      <div style={{fontSize:12,color:"#0891b2"}}>{s.studentNo}</div>
+                      <span style={{fontSize:10,background:"#e0f2fe",color:"#0369a1",borderRadius:99,padding:"2px 7px",fontWeight:700,display:"inline-block",marginTop:2}}>Borrowed</span>
+                    </div>
+                    <div style={{textAlign:"right",cursor:"pointer",flexShrink:0}} onClick={()=>setSelectedStudent(s)}>
+                      <div style={{color:pctColor(p),fontWeight:800,fontSize:17}}>{p}%</div>
+                    </div>
+                    <div onClick={()=>{setStudents(prev=>({...prev,[s.studentNo]:{...s,department:"music"}}));showToast(s.name+" moved to Music Dept.");}}
+                      style={{fontSize:11,color:"#1d4ed8",cursor:"pointer",padding:"6px 10px",background:"#dbeafe",borderRadius:8,whiteSpace:"nowrap",fontWeight:700,border:"1px solid #93c5fd",flexShrink:0}}>
+                      🎵 Music
+                    </div>
+                  </div>
+                );
+              })
+            }
+          </>}
           {selectedStudent&&<StudentModal student={selectedStudent} studentStats={studentStats} courses={myCourses} pct={pct} pctColor={pctColor} onClose={()=>setSelectedStudent(null)}/>}
         </div>
       )}
