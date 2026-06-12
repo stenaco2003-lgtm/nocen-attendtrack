@@ -765,11 +765,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                   <div style={{textAlign:"right",cursor:"pointer",flexShrink:0}} onClick={()=>setSelectedStudent(s)}>
                     <div style={{color:pctColor(p),fontWeight:800,fontSize:17}}>{p}%</div>
                   </div>
-                  <button
-                    onClick={e=>{e.preventDefault();e.stopPropagation();setStudents(prev=>({...prev,[s.studentNo]:{...s,department:"borrowed"}}));showToast(s.name+" moved to Borrowed Course.");}}
-                    style={{fontSize:11,color:"#0369a1",cursor:"pointer",padding:"6px 10px",background:"#e0f2fe",borderRadius:8,whiteSpace:"nowrap",fontWeight:700,border:"1.5px solid #0891b2",flexShrink:0,touchAction:"manipulation"}}>
-                    📚 Borrowed
-                  </button>
+
                 </div>
               );
             })}
@@ -794,17 +790,13 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                     <div style={{textAlign:"right",cursor:"pointer",flexShrink:0}} onClick={()=>setSelectedStudent(s)}>
                       <div style={{color:pctColor(p),fontWeight:800,fontSize:17}}>{p}%</div>
                     </div>
-                    <button
-                      onClick={e=>{e.preventDefault();e.stopPropagation();setStudents(prev=>({...prev,[s.studentNo]:{...s,department:"music"}}));showToast(s.name+" moved to Music Dept.");}}
-                      style={{fontSize:11,color:"#1d4ed8",cursor:"pointer",padding:"6px 10px",background:"#dbeafe",borderRadius:8,whiteSpace:"nowrap",fontWeight:700,border:"1.5px solid #1d4ed8",flexShrink:0,touchAction:"manipulation"}}>
-                      🎵 Music
-                    </button>
+
                   </div>
                 );
               })
             }
           </>}
-          {selectedStudent&&<StudentModal student={selectedStudent} studentStats={studentStats} courses={myCourses} pct={pct} pctColor={pctColor} onClose={()=>setSelectedStudent(null)}/>}
+          {selectedStudent&&<StudentModal student={selectedStudent} studentStats={studentStats} courses={myCourses} pct={pct} pctColor={pctColor} onClose={()=>setSelectedStudent(null)} onMoveDept={(s)=>{setStudents(prev=>({...prev,[s.studentNo]:{...s,department:s.department==="borrowed"?"music":"borrowed"}}));showToast(s.name+" moved successfully.");}}/>}
         </div>
       )}
 
@@ -1007,8 +999,9 @@ function exportCourseCSV({code,students,classes,records,confirmedClasses,pct,sho
 }
 
 // ── Student Modal ─────────────────────────────────────────────────────────────
-function StudentModal({ student, studentStats, courses, pct, pctColor, onClose }) {
+function StudentModal({ student, studentStats, courses, pct, pctColor, onClose, onMoveDept }) {
   const stats=studentStats(student.studentNo,courses);
+  const isBorrowed = student.department==="borrowed";
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={e=>e.stopPropagation()}>
