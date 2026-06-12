@@ -127,7 +127,7 @@ export default function App() {
       )}
       {view === "lecturer" && (
         <LecturerDash currentLecturer={currentLecturer} setCurrentLecturer={setCurrentLecturer}
-          lecturers={lecturers} setLecturers={setLecturers} students={students}
+          lecturers={lecturers} setLecturers={setLecturers} students={students} setStudents={setStudents}
           classes={classes} setClasses={setClasses} records={records} setRecords={setRecords}
           pending={pending} setPending={setPending} courses={courses} setCourses={setCourses}
           setView={setView} showToast={showToast} confirmedClasses={confirmedClasses}
@@ -438,7 +438,7 @@ function LecturerLogin({ lecturers, onLogin, setView }) {
 }
 
 // ── Lecturer Dashboard ────────────────────────────────────────────────────────
-function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLecturers, students, classes, setClasses, records, setRecords, pending, setPending, courses, setCourses, setView, showToast, confirmedClasses, studentStats, pct, pctColor, myCoursesForLecturer }) {
+function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLecturers, students, setStudents, classes, setClasses, records, setRecords, pending, setPending, courses, setCourses, setView, showToast, confirmedClasses, studentStats, pct, pctColor, myCoursesForLecturer }) {
 
   const handleLogin = (lec) => {
     if (!lec) { showToast("Incorrect PIN", "error"); return; }
