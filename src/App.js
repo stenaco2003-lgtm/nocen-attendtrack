@@ -118,7 +118,7 @@ export default function App() {
         <InventoryDash
           instruments={instruments} setInstruments={setInstruments}
           loans={loans} setLoans={setLoans}
-          studentInstruments={studentInstruments}
+          studentInstruments={studentInstruments} setStudentInstruments={setStudentInstruments}
           students={students} lecturers={lecturers}
           currentLecturer={currentLecturer} setCurrentLecturer={setCurrentLecturer}
           setView={setView} showToast={showToast} isAdmin={currentLecturer?.isAdmin||false} />
@@ -1329,7 +1329,7 @@ function InvStudentStoreCard({ inst, available, condColor, myLoan, myPending, st
 }
 
 // ── Inventory Dashboard ───────────────────────────────────────────────────────
-function InventoryDash({ instruments, setInstruments, loans, setLoans, studentInstruments, students, lecturers, currentLecturer, setCurrentLecturer, setView, showToast, isAdmin }) {
+function InventoryDash({ instruments, setInstruments, loans, setLoans, studentInstruments, setStudentInstruments, students, lecturers, currentLecturer, setCurrentLecturer, setView, showToast, isAdmin }) {
   const [lecPin, setLecPin]               = useState("");
   const [invSno, setInvSno]               = useState("");
   const [invPwd, setInvPwd]               = useState("");
@@ -1383,6 +1383,7 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
             } else {
               if (!invPwd.trim()) return showToast("Please enter your password", "error");
               if (invPwd !== invFoundStudent.password) return showToast("Incorrect password", "error");
+              if (invFoundStudent.department === "borrowed") return showToast("The Instrument Store is only available to Music Department students.", "error");
               setInvStudent(invFoundStudent);
               showToast("Welcome, " + invFoundStudent.name.split(" ")[0]);
             }
@@ -1427,7 +1428,7 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
         </div>
 
         <div style={{...S.tabs,flexWrap:"wrap"}}>
-          {[["store","🏛 Store Room"],["holdings","🎓 Student Holdings"],["myloans","📋 My Requests"]].map(([t,l])=>(
+          {[["store","🏛 Store Room"],["holdings","🎓 Student Holdings"],["myloans","📋 My Requests"],["myinstrument","🎸 My Instrument"]].map(([t,l])=>(
             <div key={t} style={{...S.tab,...(tab===t?S.tabActive:{})}} onClick={()=>setTab(t)}>
               {l}
             </div>
@@ -1512,6 +1513,15 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
               })
             }
           </div>
+        )}
+
+        {tab==="myinstrument" && (
+          <StudentInstrumentTab
+            student={invStudent}
+            studentInstruments={studentInstruments}
+            setStudentInstruments={setStudentInstruments}
+            showToast={showToast}
+          />
         )}
       </div>
     );
