@@ -40,11 +40,10 @@ export default function App() {
   const [currentLecturer, setCurrentLecturer] = useState(null);
   const [toast, setToast]           = useState(null);
   const [loading, setLoading]       = useState(true);
-  const [instruments, setInstruments] = useState(null);  // inventory
-  const [loans, setLoans]             = useState(null);   // loan requests & active loans
-  const [studentInstruments, setStudentInstruments] = useState(null); // student declared instruments
+  const [instruments, setInstruments] = useState(null);
+  const [loans, setLoans]             = useState(null);
+  const [studentInstruments, setStudentInstruments] = useState(null);
 
-  // Load from Firestore on mount — NEVER overwrite Firebase data with defaults
   useEffect(() => {
     (async () => {
       const s  = await fbGet("attendtrack/students");  setStudents(s  ?? {});
@@ -60,7 +59,6 @@ export default function App() {
     })();
   }, []);
 
-  // Save to Firestore — only after loading is complete AND value is not null
   useEffect(() => { if (!loading && students  !== null) fbSet("attendtrack/students",  students);  }, [students,  loading]);
   useEffect(() => { if (!loading && classes   !== null) fbSet("attendtrack/classes",   classes);   }, [classes,   loading]);
   useEffect(() => { if (!loading && records   !== null) fbSet("attendtrack/records",   records);   }, [records,   loading]);
@@ -167,7 +165,7 @@ function Register({ students, setStudents, setView, showToast, setCurrentStudent
   const [sno, setSno]         = useState("");
   const [pwd, setPwd]         = useState("");
   const [pwd2, setPwd2]       = useState("");
-  const [dept, setDept]       = useState("music"); // "music" | "borrowed"
+  const [dept, setDept]       = useState("music");
   const submit = () => {
     if (!name.trim() || !sno.trim()) return showToast("Please fill all fields", "error");
     if (!pwd.trim()) return showToast("Please create a password", "error");
@@ -226,7 +224,6 @@ function SignInStudent({ students, setStudents, setView, showToast, setCurrentSt
     if (!sno.trim()) return;
     const student = students[sno.trim()];
     if (!student) { showToast("Student number not found. Please register first.", "error"); return; }
-    // Existing student with no password — prompt to set one
     if (!student.password) {
       setFoundStudent(student);
       setNeedsPassword(true);
@@ -255,7 +252,6 @@ function SignInStudent({ students, setStudents, setView, showToast, setCurrentSt
     setView("student");
   };
 
-  // First-time password setup for existing students
   if (needsPassword && foundStudent) {
     return (
       <div style={S.center}>
@@ -281,7 +277,7 @@ function SignInStudent({ students, setStudents, setView, showToast, setCurrentSt
         {foundStudent && <Field label="Password" value={pwd} onChange={setPwd} placeholder="Enter your password" type="password" />}
         <Btn onClick={foundStudent ? go : checkStudent} label={foundStudent ? "Sign In" : "Continue"} primary full />
         <p style={{ textAlign:"center", marginTop:16, fontSize:13, color:"#4b6cb7" }}>
-          First time? <span style={{ color:"#6366f1", cursor:"pointer" }} onClick={() => setView("register")}>Register here</span>
+          First time? <span style={{ color:"#1d4ed8", cursor:"pointer", fontWeight:700 }} onClick={() => setView("register")}>Register here</span>
         </p>
       </div>
     </div>
@@ -298,7 +294,7 @@ function StudentCountdown({ expiresAt }) {
   if (remaining <= 0) return <span style={{fontSize:11,color:"#ef4444",fontWeight:700}}>⏰ Sign-in window closed</span>;
   const mins = Math.floor(remaining / 60000);
   const secs = Math.floor((remaining % 60000) / 1000);
-  return <span style={{fontSize:12,color:remaining<60000?"#ef4444":"#22c55e",fontWeight:700}}>⏱ {mins}:{String(secs).padStart(2,"0")} remaining</span>;
+  return <span style={{fontSize:12,color:remaining<60000?"#ef4444":"#16a34a",fontWeight:700}}>⏱ {mins}:{String(secs).padStart(2,"0")} remaining</span>;
 }
 
 // ── Student Dashboard ─────────────────────────────────────────────────────────
@@ -346,9 +342,9 @@ function StudentDash({ student, classes, confirmedClasses, records, pending, set
       <div style={S.overallBar}>
         <Ring pct={totalPct()} size={80} />
         <div style={{ marginLeft:20 }}>
-          <div style={{ fontSize:13, color:"#1e40af", marginBottom:2 }}>Overall Attendance</div>
-          <div style={{ fontSize:28, fontWeight:700, color:pctColor(totalPct()) }}>{totalPct()}%</div>
-          <div style={{ fontSize:11, color: totalPct()>=70?"#22c55e":"#ef4444", fontWeight:600 }}>
+          <div style={{ fontSize:13, color:"#1e40af", marginBottom:2, fontWeight:600 }}>Overall Attendance</div>
+          <div style={{ fontSize:28, fontWeight:800, color:pctColor(totalPct()) }}>{totalPct()}%</div>
+          <div style={{ fontSize:11, color: totalPct()>=70?"#16a34a":"#dc2626", fontWeight:700 }}>
             {totalPct()>=70?"✓ Satisfactory":"⚠ Below Required 70%"}
           </div>
         </div>
@@ -366,7 +362,7 @@ function StudentDash({ student, classes, confirmedClasses, records, pending, set
             openClasses.map(cls=>(
               <div key={cls.id} style={S.classCard}>
                 <div style={{flex:1}}>
-                  <div style={{fontWeight:700,fontSize:15}}>{cls.courseCode}</div>
+                  <div style={{fontWeight:700,fontSize:15,color:"#1e3a5f"}}>{cls.courseCode}</div>
                   <div style={{fontSize:13,color:"#4b6cb7",marginTop:2}}>{cls.topic||"Class"} · {cls.date}</div>
                   {!cls.confirmed && <span style={S.badge}>Pending confirmation</span>}
                   {cls.confirmed && cls.expiresAt && <div style={{marginTop:4}}><StudentCountdown expiresAt={cls.expiresAt}/></div>}
@@ -378,7 +374,7 @@ function StudentDash({ student, classes, confirmedClasses, records, pending, set
                         onChange={e=>setCodeEntry(prev=>({...prev,[cls.id]:e.target.value}))} />
                       <Btn onClick={()=>markAttendance(cls.id,cls.attendCode)} label="Submit" primary small />
                     </div>
-                  : <span style={{fontSize:12,color:"#f59e0b"}}>Locked</span>}
+                  : <span style={{fontSize:12,color:"#d97706",fontWeight:700}}>Locked</span>}
               </div>
             ))}
         </div>
@@ -388,17 +384,126 @@ function StudentDash({ student, classes, confirmedClasses, records, pending, set
           {courses.map(code=>{
             const s=stats[code]; const p=pct(s.attended,s.total);
             return (
-              <div key={code} style={S.courseCard}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                  <span style={{fontWeight:700}}>{code}</span>
-                  <span style={{color:pctColor(p),fontWeight:700}}>{p}%</span>
+              <div key={code} style={{...S.courseCard, borderLeft:`4px solid ${pctColor(p)}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{fontWeight:800,fontSize:14,color:"#1e3a5f"}}>{code}</span>
+                  <span style={{color:pctColor(p),fontWeight:800,fontSize:18}}>{p}%</span>
                 </div>
                 <div style={S.barBg}><div style={{...S.barFill,width:p+"%",background:pctColor(p)}}/></div>
-                <div style={{fontSize:12,color:"#4b6cb7",marginTop:6}}>{s.attended}/{s.total} classes attended</div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6}}>
+                  <span style={{fontSize:12,color:"#1e40af"}}>{s.attended}/{s.total} classes attended</span>
+                  <span style={{fontSize:11,fontWeight:700,padding:"2px 10px",borderRadius:99,
+                    background:pctColor(p)+"22",color:pctColor(p)}}>
+                    {s.total===0?"No classes yet":p>=70?"✓ Satisfactory":"⚠ Below 70%"}
+                  </span>
+                </div>
               </div>
             );
           })}
         </div>
+      )}
+      {tab==="store" && (
+        <div style={S.listWrap}>
+          <div style={{...S.sectionHeader,background:"linear-gradient(135deg,#dbeafe,#e0f2fe)",borderColor:"#3b82f6",marginBottom:16}}>
+            <div style={{fontWeight:700,color:"#1d4ed8",fontSize:13}}>🏛 Department Store Room</div>
+            <div style={{fontSize:11,color:"#1e40af",marginTop:2}}>Browse available instruments and request to borrow</div>
+          </div>
+          {(instruments||[]).length===0
+            ? <Empty msg="No instruments in the store room yet." />
+            : (instruments||[]).map(inst=>{
+              const activeLoansForInst=(loans||[]).filter(l=>l.status==="active"&&l.instId===inst.id).length;
+              const available=Math.max(0,inst.quantity-activeLoansForInst);
+              const condColor=(c)=>c==="Good"?"#16a34a":c==="Fair"?"#d97706":"#dc2626";
+              const myLoan=(loans||[]).find(l=>l.instId===inst.id&&l.borrowerId===student.studentNo&&l.status==="active");
+              const myPending=(loans||[]).find(l=>l.instId===inst.id&&l.borrowerId===student.studentNo&&l.status==="pending");
+              return (
+                <StudentStoreCard key={inst.id} inst={inst} available={available} condColor={condColor}
+                  myLoan={myLoan} myPending={myPending} student={student} setLoans={setLoans} showToast={showToast} />
+              );
+            })
+          }
+        </div>
+      )}
+      {tab==="holdings" && (
+        <div style={S.listWrap}>
+          <div style={{...S.sectionHeader,background:"linear-gradient(135deg,#dcfce7,#ecfdf5)",borderColor:"#22c55e",marginBottom:16}}>
+            <div style={{fontWeight:700,color:"#15803d",fontSize:13}}>🎓 Instruments With Students</div>
+            <div style={{fontSize:11,color:"#1e40af",marginTop:2}}>Department instruments currently assigned to students</div>
+          </div>
+          {(studentInstruments||[]).length===0
+            ? <Empty msg="No students have declared instruments yet." />
+            : (studentInstruments||[]).map(inst=>{
+              const condColor=(c)=>c==="Good"?"#16a34a":c==="Fair"?"#d97706":"#dc2626";
+              const isMe=inst.studentNo===student.studentNo;
+              return (
+                <div key={inst.id} style={{...S.classCard,borderColor:isMe?"#1d4ed8":"#bfdbfe"}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,color:isMe?"#1d4ed8":"#1e3a5f"}}>{inst.name}</div>
+                    <div style={{fontSize:12,color:"#4b6cb7"}}>{inst.type}</div>
+                    <div style={{fontSize:12,color:isMe?"#1d4ed8":"#4b6cb7",marginTop:2,fontWeight:isMe?700:400}}>
+                      {isMe?"👤 You":"👤 "+inst.studentName}
+                    </div>
+                  </div>
+                  <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,flexShrink:0,
+                    background:condColor(inst.condition)+"22",color:condColor(inst.condition)}}>
+                    {inst.condition}
+                  </span>
+                </div>
+              );
+            })
+          }
+        </div>
+      )}
+      {tab==="instrument" && (
+        <StudentInstrumentTab
+          student={student}
+          studentInstruments={studentInstruments}
+          setStudentInstruments={setStudentInstruments}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Student Store Card (isolated component so useState is valid) ─────────────
+function StudentStoreCard({ inst, available, condColor, myLoan, myPending, student, setLoans, showToast }) {
+  const [showReq, setShowReq] = useState(false);
+  const [reqNote, setReqNote] = useState("");
+  return (
+    <div style={S.formCard}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:14,color:"#1e3a5f"}}>{inst.name}</div>
+          <div style={{fontSize:12,color:"#4b6cb7"}}>{inst.type}</div>
+        </div>
+        <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,
+          background:condColor(inst.condition)+"22",color:condColor(inst.condition)}}>
+          {inst.condition}
+        </span>
+      </div>
+      <div style={{fontSize:12,color:available>0?"#16a34a":"#dc2626",marginBottom:8,fontWeight:600}}>
+        {available>0?`${available} available`:"Currently unavailable"}
+      </div>
+      {myLoan&&<div style={{fontSize:12,color:"#d97706",marginBottom:6,fontWeight:600}}>✓ You currently have this instrument</div>}
+      {myPending&&<div style={{fontSize:12,color:"#1d4ed8",marginBottom:6,fontWeight:600}}>⏳ Your request is pending approval</div>}
+      {!myLoan&&!myPending&&available>0&&(
+        showReq
+          ? <div>
+              <input style={{...S.input,marginBottom:8,fontSize:13}} placeholder="Why do you need this instrument?"
+                value={reqNote} onChange={e=>setReqNote(e.target.value)} />
+              <div style={{display:"flex",gap:6}}>
+                <Btn onClick={()=>{
+                  if(!reqNote.trim())return showToast("Please describe your purpose","error");
+                  const loan={id:Date.now().toString(),instId:inst.id,borrowerName:student.name,borrowerId:student.studentNo,borrowerType:"student",purpose:reqNote.trim(),status:"pending",requestedAt:new Date().toISOString(),damageReports:[]};
+                  setLoans(prev=>[...(prev||[]),loan]);
+                  setReqNote(""); setShowReq(false);
+                  showToast("Request submitted — awaiting lecturer approval.");
+                }} label="Submit Request" primary small />
+                <Btn onClick={()=>setShowReq(false)} label="Cancel" small />
+              </div>
+            </div>
+          : <Btn onClick={()=>setShowReq(true)} label="📤 Request to Borrow" small />
       )}
     </div>
   );
@@ -411,9 +516,9 @@ function CountdownBadge({ expiresAt }) {
     const iv = setInterval(() => { setRemaining(Math.max(0, expiresAt - Date.now())); }, 1000);
     return () => clearInterval(iv);
   }, [expiresAt]);
-  if (remaining<=0) return <span style={{fontSize:11,background:"#7f1d1d",color:"#fca5a5",borderRadius:6,padding:"3px 8px",fontWeight:600}}>⏰ Closed</span>;
+  if (remaining<=0) return <span style={{fontSize:11,background:"#fee2e2",color:"#be123c",borderRadius:6,padding:"3px 8px",fontWeight:700}}>⏰ Closed</span>;
   const mins=Math.floor(remaining/60000), secs=Math.floor((remaining%60000)/1000);
-  return <span style={{fontSize:12,background:remaining<60000?"#7f1d1d":"#14532d",color:remaining<60000?"#fca5a5":"#86efac",borderRadius:6,padding:"3px 8px",fontWeight:700}}>⏱ {mins}:{String(secs).padStart(2,"0")} left</span>;
+  return <span style={{fontSize:12,background:remaining<60000?"#fee2e2":"#dcfce7",color:remaining<60000?"#be123c":"#15803d",borderRadius:6,padding:"3px 8px",fontWeight:700}}>⏱ {mins}:{String(secs).padStart(2,"0")} left</span>;
 }
 
 // ── Lecturer Login ─────────────────────────────────────────────────────────────
@@ -465,7 +570,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
   const [resetTarget, setResetTarget] = useState(null);
   const [resetNewPin, setResetNewPin] = useState("");
   const [signDuration, setSignDuration] = useState(15);
-  const [manualClassId, setManualClassId] = useState(null); // class being manually marked
+  const [manualClassId, setManualClassId] = useState(null);
 
   const today = new Date().toISOString().slice(0, 10);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
@@ -512,7 +617,6 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
   };
 
   const saveManualAttendance = (classId) => {
-    // Remove from pending if confirmed manually
     setPending(prev => { const n={...prev}; delete n[classId]; return n; });
     setManualClassId(null);
     showToast("Attendance saved successfully!");
@@ -611,32 +715,31 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
       </div>
 
       <div style={S.chips}>
-        <Chip label="Students" value={Object.keys(students||{}).length} color="#6366f1" />
-        <Chip label="My Classes" value={myConfirmed.length} color="#22c55e" />
-        <Chip label="Pending" value={allPending.length} color="#f59e0b" />
+        <Chip label="Students" value={Object.keys(students||{}).length} color="#1d4ed8" />
+        <Chip label="My Classes" value={myConfirmed.length} color="#16a34a" />
+        <Chip label="Pending" value={allPending.length} color="#d97706" />
       </div>
 
-      {/* Today Banner */}
       <div style={S.todayBanner}>
         <div style={{flex:1}}>
           <div style={{fontWeight:700,fontSize:14,color:"#1e3a5f"}}>📅 {new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</div>
-          <div style={{fontSize:12,color:"#3b82f6",marginTop:2}}>
+          <div style={{fontSize:12,color:"#1d4ed8",marginTop:2,fontWeight:600}}>
             {(myCourses||[]).filter(code=>(classes||[]).some(c=>c.courseCode===code&&c.date===today&&c.confirmed)).length} / {(myCourses||[]).length} courses open today
           </div>
           {(classes||[]).filter(c=>(myCourses||[]).includes(c.courseCode)&&c.date===today&&c.confirmed&&c.attendCode).map(c=>(
-            <div key={c.id} style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:8,background:"#1e1b4b",border:"1px solid #6366f1",borderRadius:8,padding:"4px 14px",marginRight:8}}>
+            <div key={c.id} style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:8,background:"#eff6ff",border:"1.5px solid #1d4ed8",borderRadius:8,padding:"4px 14px",marginRight:8}}>
               <span style={{fontSize:11,color:"#4b6cb7"}}>{c.courseCode}:</span>
-              <span style={{fontSize:22,fontWeight:800,letterSpacing:5,color:"#a5b4fc"}}>{c.attendCode}</span>
+              <span style={{fontSize:22,fontWeight:800,letterSpacing:5,color:"#1d4ed8"}}>{c.attendCode}</span>
             </div>
           ))}
         </div>
         <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={{fontSize:11,color:"#1e40af"}}>Date:</span>
+            <span style={{fontSize:11,color:"#1e40af",fontWeight:600}}>Date:</span>
             <input type="date" style={{...S.select,padding:"4px 8px",fontSize:12}} value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} />
           </div>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={{fontSize:11,color:"#1e40af"}}>Window:</span>
+            <span style={{fontSize:11,color:"#1e40af",fontWeight:600}}>Window:</span>
             <select style={{...S.select,padding:"4px 8px",fontSize:12}} value={signDuration} onChange={e=>setSignDuration(Number(e.target.value))}>
               {[5,10,15,20,30].map(m=><option key={m} value={m}>{m} min</option>)}
             </select>
@@ -661,7 +764,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
             allPending.map(({classId,cls,student})=>(
               <div key={classId+student.studentNo} style={S.classCard}>
                 <div style={{flex:1}}>
-                  <div style={{fontWeight:700}}>{student.name}</div>
+                  <div style={{fontWeight:700,color:"#1e3a5f"}}>{student.name}</div>
                   <div style={{fontSize:12,color:"#4b6cb7"}}>{student.studentNo}</div>
                   <div style={{fontSize:13,marginTop:4,color:"#1e40af"}}>{cls.courseCode} · {cls.date}{cls.topic?" · "+cls.topic:""}</div>
                 </div>
@@ -689,16 +792,16 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
             <div key={cls.id}>
             <div style={S.classCard}>
               <div style={{flex:1}}>
-                <div style={{fontWeight:700}}>{cls.courseCode}</div>
+                <div style={{fontWeight:700,color:"#1e3a5f"}}>{cls.courseCode}</div>
                 <div style={{fontSize:13,color:"#4b6cb7"}}>{cls.topic||"Class"} · {cls.date}</div>
                 <div style={{fontSize:12,marginTop:4}}>
-                  {cls.confirmed?<span style={{color:"#22c55e"}}>✓ Confirmed · {(records[cls.id]||[]).length} signed</span>:<span style={{color:"#f59e0b"}}>⏳ Not confirmed yet</span>}
+                  {cls.confirmed?<span style={{color:"#16a34a",fontWeight:600}}>✓ Confirmed · {(records[cls.id]||[]).length} signed</span>:<span style={{color:"#d97706",fontWeight:600}}>⏳ Not confirmed yet</span>}
                 </div>
                 {cls.confirmed&&cls.attendCode&&(
                   <div style={{marginTop:6,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                    <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"#1e1b4b",border:"1px solid #6366f1",borderRadius:8,padding:"4px 12px"}}>
+                    <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"#eff6ff",border:"1.5px solid #1d4ed8",borderRadius:8,padding:"4px 12px"}}>
                       <span style={{fontSize:11,color:"#4b6cb7"}}>Code:</span>
-                      <span style={{fontSize:20,fontWeight:800,letterSpacing:4,color:"#a5b4fc"}}>{cls.attendCode}</span>
+                      <span style={{fontSize:20,fontWeight:800,letterSpacing:4,color:"#1d4ed8"}}>{cls.attendCode}</span>
                     </div>
                     {cls.expiresAt&&<CountdownBadge expiresAt={cls.expiresAt}/>}
                   </div>
@@ -710,7 +813,6 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                 <Btn onClick={()=>deleteClass(cls.id)} label="🗑" small danger />
               </div>
             </div>
-            {/* Manual attendance panel */}
             {manualClassId===cls.id && (
               <div style={{...S.formCard,marginTop:-6,borderTop:"none",borderRadius:"0 0 14px 14px",paddingTop:12}}>
                 <div style={{fontWeight:700,color:"#1e3a5f",marginBottom:4,fontSize:13}}>✏ Mark Attendance — {cls.courseCode} · {cls.date}</div>
@@ -721,9 +823,9 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                     return (
                       <div key={s.studentNo} onClick={()=>toggleManualAttendance(cls.id,s.studentNo)}
                         style={{padding:"6px 12px",borderRadius:99,fontSize:12,cursor:"pointer",fontWeight:600,
-                          background:present?"#14532d":"#1e293b",
-                          color:present?"#86efac":"#64748b",
-                          border:`1px solid ${present?"#22c55e":"#1e293b"}`}}>
+                          background:present?"#dcfce7":"#f1f5f9",
+                          color:present?"#15803d":"#64748b",
+                          border:`1.5px solid ${present?"#22c55e":"#e2e8f0"}`}}>
                         {present?"✓ ":""}{s.name}
                       </div>
                     );
@@ -731,7 +833,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                 </div>
                 {Object.keys(students||{}).length===0&&<div style={{fontSize:12,color:"#1e40af",marginBottom:10}}>No students registered yet.</div>}
                 <div style={{fontSize:12,color:"#4b6cb7",marginBottom:10}}>
-                  {(records[cls.id]||[]).length} of {Object.keys(students).length} students marked present
+                  {(records[cls.id]||[]).length} of {Object.keys(students||{}).length} students marked present
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <Btn onClick={()=>saveManualAttendance(cls.id)} label="💾 Save Attendance" primary small />
@@ -757,15 +859,14 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
               let tot=0,att=0; Object.values(stats).forEach(x=>{tot+=x.total;att+=x.attended;});
               const p=pct(att,tot);
               return (
-                <div key={s.studentNo} style={{...S.classCard,marginBottom:8,gap:8}}>
-                  <div style={{flex:1,cursor:"pointer",minWidth:0}} onClick={()=>setSelectedStudent(s)}>
-                    <div style={{fontWeight:700,color:"#1e3a5f",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
+                <div key={s.studentNo} style={{...S.classCard,marginBottom:8,cursor:"pointer"}} onClick={()=>setSelectedStudent(s)}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:700,color:"#1e3a5f"}}>{s.name}</div>
                     <div style={{fontSize:12,color:"#1e40af"}}>{s.studentNo}</div>
                   </div>
-                  <div style={{textAlign:"right",cursor:"pointer",flexShrink:0}} onClick={()=>setSelectedStudent(s)}>
+                  <div style={{textAlign:"right",flexShrink:0}}>
                     <div style={{color:pctColor(p),fontWeight:800,fontSize:17}}>{p}%</div>
                   </div>
-
                 </div>
               );
             })}
@@ -781,16 +882,15 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                 let tot=0,att=0; Object.values(stats).forEach(x=>{tot+=x.total;att+=x.attended;});
                 const p=pct(att,tot);
                 return (
-                  <div key={s.studentNo} style={{...S.classCard,borderColor:"#7dd3fc",marginBottom:8,gap:8}}>
-                    <div style={{flex:1,cursor:"pointer",minWidth:0}} onClick={()=>setSelectedStudent(s)}>
-                      <div style={{fontWeight:700,color:"#0369a1",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
+                  <div key={s.studentNo} style={{...S.classCard,borderColor:"#7dd3fc",marginBottom:8,cursor:"pointer"}} onClick={()=>setSelectedStudent(s)}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,color:"#0369a1"}}>{s.name}</div>
                       <div style={{fontSize:12,color:"#0891b2"}}>{s.studentNo}</div>
                       <span style={{fontSize:10,background:"#e0f2fe",color:"#0369a1",borderRadius:99,padding:"2px 7px",fontWeight:700,display:"inline-block",marginTop:2}}>Borrowed</span>
                     </div>
-                    <div style={{textAlign:"right",cursor:"pointer",flexShrink:0}} onClick={()=>setSelectedStudent(s)}>
+                    <div style={{textAlign:"right",flexShrink:0}}>
                       <div style={{color:pctColor(p),fontWeight:800,fontSize:17}}>{p}%</div>
                     </div>
-
                   </div>
                 );
               })
@@ -809,18 +909,18 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
             <div style={{marginBottom:16}}>
               <label style={S.label}>Assign Courses (optional)</label>
               <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:6}}>
-                {courses.map(code=>(
+                {(courses||[]).map(code=>(
                   <div key={code} onClick={()=>toggleNlCourse(code)} style={{...S.courseChip,...(nlCourses.includes(code)?S.courseChipActive:{})}}>
                     {code}
                   </div>
                 ))}
               </div>
-              {courses.length===0&&<div style={{fontSize:12,color:"#1e40af"}}>No courses registered yet.</div>}
+              {(courses||[]).length===0&&<div style={{fontSize:12,color:"#1e40af"}}>No courses registered yet.</div>}
             </div>
             <div style={{marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
               <input type="checkbox" id="nlInCharge" checked={nlInCharge||false} onChange={e=>setNlInCharge(e.target.checked)}
-                style={{width:16,height:16,accentColor:"#6366f1",cursor:"pointer"}} />
-              <label htmlFor="nlInCharge" style={{...S.label,marginBottom:0,cursor:"pointer",color:"#1e3a5f"}}>
+                style={{width:16,height:16,accentColor:"#1d4ed8",cursor:"pointer"}} />
+              <label htmlFor="nlInCharge" style={{...S.label,marginBottom:0,cursor:"pointer",color:"#1e3a5f",textTransform:"none"}}>
                 Instrument Store — Lecturer in Charge
               </label>
             </div>
@@ -830,11 +930,11 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
             <div key={lec.id}>
               <div style={S.classCard}>
                 <div style={{flex:1}}>
-                  <div style={{fontWeight:700}}>{lec.name}</div>
+                  <div style={{fontWeight:700,color:"#1e3a5f"}}>{lec.name}</div>
                   <div style={{fontSize:12,color:"#4b6cb7",marginTop:3}}>
                     {lec.isAdmin?"Admin — all courses":(Array.isArray(lec.courses)?lec.courses.join(", "):"All courses")}
                   </div>
-                  {lec.instrumentInCharge&&<span style={{fontSize:10,background:"#14532d",color:"#86efac",borderRadius:99,padding:"2px 8px",marginTop:4,display:"inline-block"}}>🎸 Instrument In Charge</span>}
+                  {lec.instrumentInCharge&&<span style={{fontSize:10,background:"#dcfce7",color:"#15803d",borderRadius:99,padding:"2px 8px",marginTop:4,display:"inline-block",fontWeight:700}}>🎸 Instrument In Charge</span>}
                 </div>
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
                   {!lec.isAdmin&&<>
@@ -845,7 +945,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                     <Btn onClick={()=>{setResetTarget(lec.id===resetTarget?null:lec.id);setResetNewPin("");}} label="Reset PIN" small />
                     <Btn onClick={()=>removeLecturer(lec.id)} label="Remove" small danger />
                   </>}
-                  {lec.isAdmin&&<span style={{fontSize:11,color:"#6366f1",fontWeight:700}}>ADMIN</span>}
+                  {lec.isAdmin&&<span style={{fontSize:11,color:"#1d4ed8",fontWeight:700}}>ADMIN</span>}
                 </div>
               </div>
               {resetTarget===lec.id&&(
@@ -867,7 +967,6 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
         <div style={S.listWrap}>
           {(courses===null||lecturers===null)?<Empty msg="Loading data, please wait..."/>:<>
 
-          {/* Change PIN */}
           <div style={S.formCard}>
             <div style={{fontWeight:700,marginBottom:4,color:"#1e3a5f"}}>🔑 Change My PIN</div>
             <div style={{fontSize:12,color:"#1e40af",marginBottom:14}}>Update your login PIN securely.</div>
@@ -877,7 +976,6 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
             <Btn onClick={changeMyPin} label="Update PIN" primary full />
           </div>
 
-          {/* Export */}
           <div style={S.formCard}>
             <div style={{fontWeight:700,marginBottom:4,color:"#1e3a5f"}}>📥 Export Attendance</div>
             <div style={{fontSize:12,color:"#1e40af",marginBottom:14}}>Download records as CSV — opens in Excel.</div>
@@ -889,7 +987,6 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
             </div>
           </div>
 
-          {/* Backup & Restore — Admin only */}
           {isAdmin&&(
             <div style={S.formCard}>
               <div style={{fontWeight:700,marginBottom:4,color:"#1e3a5f"}}>💾 Backup & Restore Data</div>
@@ -907,7 +1004,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
               }} label="⬇ Download Full Backup" primary full />
               <div style={{marginTop:10}}>
                 <div style={{fontSize:12,color:"#1e40af",marginBottom:6}}>Restore from backup file:</div>
-                <label style={{display:"block",border:"2px dashed #1e293b",borderRadius:10,padding:"12px",textAlign:"center",cursor:"pointer",fontSize:12,color:"#1e40af"}}>
+                <label style={{display:"block",border:"2px dashed #93c5fd",borderRadius:10,padding:"12px",textAlign:"center",cursor:"pointer",fontSize:12,color:"#1e40af",background:"#f0f7ff"}}>
                   📂 Tap to select backup file (.json)
                   <input type="file" accept=".json" style={{display:"none"}} onChange={e=>{
                     const file = e.target.files[0];
@@ -934,7 +1031,6 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
             </div>
           )}
 
-          {/* Course Management — Admin only */}
           {isAdmin&&(
             <div style={S.formCard}>
               <div style={{fontWeight:700,marginBottom:12,color:"#1e3a5f"}}>Course Management</div>
@@ -949,9 +1045,9 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
               </div>
               <div style={{marginTop:16}}>
                 {(courses||[]).map(c=>(
-                  <div key={c} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #1e293b"}}>
+                  <div key={c} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #dbeafe"}}>
                     <span style={{color:"#1e3a5f"}}>{c}</span>
-                    <span style={{fontSize:12,color:"#ef4444",cursor:"pointer"}} onClick={()=>setCourses((courses||[]).filter(x=>x!==c))}>Remove</span>
+                    <span style={{fontSize:12,color:"#dc2626",cursor:"pointer",fontWeight:600}} onClick={()=>setCourses((courses||[]).filter(x=>x!==c))}>Remove</span>
                   </div>
                 ))}
               </div>
@@ -976,7 +1072,6 @@ function exportFullRegister({students,classes,records,courses,confirmedClasses,p
   const list=Object.values(students); if(!list.length)return showToast("No students yet.","error");
   const header=["Student Name","Student Number","Department"]; courses.forEach(code=>header.push(code+" Attended",code+" Total",code+" %")); header.push("Overall Attended","Overall Total","Overall %","Status");
   const rows=[header];
-  // Music students first, then borrowed
   const sorted=[...list.filter(s=>!s.department||s.department==="music"),...list.filter(s=>s.department==="borrowed")];
   sorted.forEach(s=>{
     const deptLabel=(!s.department||s.department==="music")?"Music Department":"Borrowed Course";
@@ -1049,14 +1144,188 @@ function Btn({ onClick, label, icon, primary, small, full, danger, style:st }) {
 function Field({ label, value, onChange, placeholder, type="text" }) {
   return <div style={{marginBottom:16}}><label style={S.label}>{label}</label><input type={type} style={S.input} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} /></div>;
 }
-function BackBtn({ onClick }) { return <div onClick={onClick} style={{cursor:"pointer",color:"#6366f1",fontSize:13,marginBottom:16}}>← Back</div>; }
-function Empty({ msg }) { return <div style={{textAlign:"center",color:"#1e40af",padding:"40px 0",fontSize:14}}>{msg}</div>; }
+function BackBtn({ onClick }) { return <div onClick={onClick} style={{cursor:"pointer",color:"#1d4ed8",fontSize:13,marginBottom:16,fontWeight:600}}>← Back</div>; }
+function Empty({ msg }) { return <div style={{textAlign:"center",color:"#4b6cb7",padding:"40px 0",fontSize:14}}>{msg}</div>; }
 function Chip({ label, value, color }) {
-  return <div style={{...S.chip,borderColor:color}}><div style={{fontSize:22,fontWeight:800,color}}>{value}</div><div style={{fontSize:11,color:"#1e40af",marginTop:2}}>{label}</div></div>;
+  return <div style={{...S.chip,borderColor:color}}><div style={{fontSize:22,fontWeight:800,color}}>{value}</div><div style={{fontSize:11,color:"#1e40af",marginTop:2,fontWeight:600}}>{label}</div></div>;
 }
 function Ring({ pct:p, size=60 }) {
   const r=size/2-6,circ=2*Math.PI*r,offset=circ-(p/100)*circ,col=p>=70?"#22c55e":p>=50?"#f59e0b":"#ef4444";
-  return <svg width={size} height={size} style={{flexShrink:0}}><circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1e293b" strokeWidth={7}/><circle cx={size/2} cy={size/2} r={r} fill="none" stroke={col} strokeWidth={7} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" transform={`rotate(-90 ${size/2} ${size/2})`}/><text x="50%" y="54%" textAnchor="middle" fill={col} fontSize={size*0.22} fontWeight="700">{p}%</text></svg>;
+  return <svg width={size} height={size} style={{flexShrink:0}}><circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#dbeafe" strokeWidth={7}/><circle cx={size/2} cy={size/2} r={r} fill="none" stroke={col} strokeWidth={7} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" transform={`rotate(-90 ${size/2} ${size/2})`}/><text x="50%" y="54%" textAnchor="middle" fill={col} fontSize={size*0.22} fontWeight="700">{p}%</text></svg>;
+}
+
+// ── Student Instrument Tab ────────────────────────────────────────────────────
+function StudentInstrumentTab({ student, studentInstruments, setStudentInstruments, showToast }) {
+  const myInstruments = (studentInstruments||[]).filter(i=>i.studentNo===student.studentNo);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name:"", type:"", serialNo:"", condition:"Good", notes:"" });
+  const [editId, setEditId] = useState(null);
+  const [damageNote, setDamageNote] = useState("");
+
+  const TYPES      = ["String","Wind","Keyboard","Percussion","Vocal","Other"];
+  const CONDITIONS = ["Good","Fair","Poor","Under Repair","Damaged"];
+  const condColor  = (c) => c==="Good"?"#16a34a":c==="Fair"?"#d97706":c==="Poor"?"#dc2626":c==="Under Repair"?"#1d4ed8":"#dc2626";
+
+  const submitInstrument = () => {
+    if (!form.name.trim()) return showToast("Instrument name is required","error");
+    if (editId) {
+      setStudentInstruments(prev=>(prev||[]).map(i=>i.id===editId?{...i,...form,updatedAt:new Date().toISOString()}:i));
+      showToast("Instrument record updated.");
+      setEditId(null);
+    } else {
+      const inst = {
+        id: Date.now().toString(),
+        studentNo: student.studentNo,
+        studentName: student.name,
+        ...form,
+        registeredAt: new Date().toISOString(),
+        ownership: "department",
+        damageReports: []
+      };
+      setStudentInstruments(prev=>[...(prev||[]),inst]);
+      showToast("Instrument registered successfully!");
+    }
+    setForm({ name:"", type:"", serialNo:"", condition:"Good", notes:"" });
+    setShowForm(false);
+  };
+
+  const reportDamage = (id) => {
+    if (!damageNote.trim()) return showToast("Please describe the damage","error");
+    setStudentInstruments(prev=>(prev||[]).map(i=>i.id===id?{
+      ...i,
+      condition:"Damaged",
+      damageReports:[...(i.damageReports||[]),{note:damageNote,reportedAt:new Date().toISOString(),reportedBy:student.name}]
+    }:i));
+    setDamageNote("");
+    showToast("Damage report submitted.");
+  };
+
+  const startEdit = (inst) => {
+    setForm({ name:inst.name, type:inst.type, serialNo:inst.serialNo||"", condition:inst.condition, notes:inst.notes||"" });
+    setEditId(inst.id);
+    setShowForm(true);
+  };
+
+  return (
+    <div style={S.listWrap}>
+      <div style={{...S.formCard,borderColor:"#1d4ed8"}}>
+        <div style={{fontSize:12,color:"#1e40af",marginBottom:12}}>
+          Register any department instrument assigned to you. This helps the department keep an accurate inventory record.
+        </div>
+        {!showForm
+          ? <Btn onClick={()=>{setShowForm(true);setEditId(null);setForm({name:"",type:"",serialNo:"",condition:"Good",notes:""}); }} label="➕ Register an Instrument" primary full />
+          : <div>
+              <div style={{fontWeight:700,marginBottom:12,color:"#1e3a5f"}}>{editId?"Edit Instrument":"Register Department Instrument"}</div>
+              <Field label="Instrument Name" value={form.name} onChange={v=>setForm(p=>({...p,name:v}))} placeholder="e.g. Trumpet, Classical Guitar" />
+              <div style={{marginBottom:16}}>
+                <label style={S.label}>Type</label>
+                <select style={S.select} value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))}>
+                  <option value="">Select type</option>
+                  {TYPES.map(t=><option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <Field label="Serial Number (if visible)" value={form.serialNo} onChange={v=>setForm(p=>({...p,serialNo:v}))} placeholder="e.g. GTR-001 or leave blank" />
+              <div style={{marginBottom:16}}>
+                <label style={S.label}>Current Condition</label>
+                <select style={S.select} value={form.condition} onChange={e=>setForm(p=>({...p,condition:e.target.value}))}>
+                  {CONDITIONS.map(c=><option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <Field label="Notes (optional)" value={form.notes} onChange={v=>setForm(p=>({...p,notes:v}))} placeholder="Any additional information" />
+              <div style={{display:"flex",gap:8}}>
+                <Btn onClick={submitInstrument} label={editId?"Update":"Register"} primary small />
+                <Btn onClick={()=>{setShowForm(false);setEditId(null);}} label="Cancel" small />
+              </div>
+            </div>
+        }
+      </div>
+
+      {myInstruments.length===0
+        ? <Empty msg="You have not registered any department instrument yet." />
+        : myInstruments.map(inst=>(
+          <div key={inst.id} style={S.formCard}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:15,color:"#1e3a5f"}}>{inst.name}</div>
+                <div style={{fontSize:12,color:"#4b6cb7"}}>{inst.type}{inst.serialNo?" · S/N: "+inst.serialNo:""}</div>
+                <div style={{fontSize:11,color:"#4b6cb7",marginTop:2}}>Registered: {new Date(inst.registeredAt).toLocaleDateString()}</div>
+                {inst.notes&&<div style={{fontSize:12,color:"#4b6cb7",marginTop:2}}>{inst.notes}</div>}
+              </div>
+              <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,
+                background:condColor(inst.condition)+"22",color:condColor(inst.condition)}}>
+                {inst.condition}
+              </span>
+            </div>
+
+            {(inst.damageReports||[]).length>0&&(
+              <div style={{background:"#fee2e2",borderRadius:8,padding:"8px 10px",marginBottom:8}}>
+                <div style={{fontSize:11,color:"#be123c",fontWeight:700,marginBottom:4}}>⚠ Damage Reports</div>
+                {inst.damageReports.map((r,i)=>(
+                  <div key={i} style={{fontSize:12,color:"#be123c"}}>{new Date(r.reportedAt).toLocaleDateString()}: {r.note}</div>
+                ))}
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+              <Btn onClick={()=>startEdit(inst)} label="✏ Edit" small />
+            </div>
+
+            <div style={{borderTop:"1px solid #dbeafe",paddingTop:8,marginTop:4}}>
+              <input style={{...S.input,marginBottom:6,fontSize:12}} placeholder="Report damage or issue..."
+                value={damageNote} onChange={e=>setDamageNote(e.target.value)} />
+              <Btn onClick={()=>reportDamage(inst.id)} label="⚠ Report Damage" small danger />
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  );
+}
+
+// ── Inventory Student Store Card (isolated) ──────────────────────────────────
+function InvStudentStoreCard({ inst, available, condColor, myLoan, myPending, student, setLoans, showToast }) {
+  const [showReq, setShowReq] = useState(false);
+  const [reqNote, setReqNote] = useState("");
+  return (
+    <div style={S.formCard}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:14,color:"#1e3a5f"}}>{inst.name}</div>
+          <div style={{fontSize:12,color:"#4b6cb7"}}>{inst.type}</div>
+        </div>
+        <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,
+          background:condColor(inst.condition)+"22",color:condColor(inst.condition)}}>
+          {inst.condition}
+        </span>
+      </div>
+      <div style={{fontSize:12,marginBottom:8,fontWeight:600,color:available>0?"#16a34a":"#dc2626"}}>
+        {available>0?`${available} available`:"Currently unavailable"}
+      </div>
+      {myLoan&&<div style={{fontSize:12,color:"#d97706",marginBottom:6,fontWeight:600}}>✓ You currently have this instrument</div>}
+      {myPending&&<div style={{fontSize:12,color:"#1d4ed8",marginBottom:6,fontWeight:600}}>⏳ Your request is pending approval</div>}
+      {!myLoan&&!myPending&&available>0&&(
+        showReq
+          ? <div>
+              <input style={{...S.input,marginBottom:8,fontSize:13}}
+                placeholder="Why do you need this instrument?"
+                value={reqNote} onChange={e=>setReqNote(e.target.value)} />
+              <div style={{display:"flex",gap:6}}>
+                <Btn onClick={()=>{
+                  if(!reqNote.trim())return showToast("Please describe your purpose","error");
+                  const loan={id:Date.now().toString(),instId:inst.id,borrowerName:student.name,
+                    borrowerId:student.studentNo,borrowerType:"student",purpose:reqNote.trim(),
+                    status:"pending",requestedAt:new Date().toISOString(),damageReports:[]};
+                  setLoans(prev=>[...(prev||[]),loan]);
+                  setReqNote(""); setShowReq(false);
+                  showToast("Request submitted — awaiting lecturer approval.");
+                }} label="Submit Request" primary small />
+                <Btn onClick={()=>setShowReq(false)} label="Cancel" small />
+              </div>
+            </div>
+          : <Btn onClick={()=>setShowReq(true)} label="📤 Request to Borrow" small />
+      )}
+    </div>
+  );
 }
 
 // ── Inventory Dashboard ───────────────────────────────────────────────────────
@@ -1065,7 +1334,7 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
   const [invSno, setInvSno]               = useState("");
   const [invPwd, setInvPwd]               = useState("");
   const [invFoundStudent, setInvFoundStudent] = useState(null);
-  const [invRole, setInvRole]             = useState(null); // "student" | "lecturer"
+  const [invRole, setInvRole]             = useState(null);
   const [invStudent, setInvStudent]       = useState(null);
   const [tab, setTab]               = useState("inventory");
   const [showAddInst, setShowAddInst] = useState(false);
@@ -1078,7 +1347,6 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
   const CONDITIONS = ["Good","Fair","Poor","Under Repair","Damaged"];
   const TYPES      = ["String","Wind","Keyboard","Percussion","Vocal","Other"];
 
-  // ── Entry screen — role selection ──────────────────────────────────────────
   if (!currentLecturer && invRole === null) {
     return (
       <div style={S.center}>
@@ -1098,7 +1366,6 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
     );
   }
 
-  // ── Student entry ────────────────────────────────────────────────────────────
   if (!currentLecturer && invRole === "student" && !invStudent) {
     return (
       <div style={S.center}>
@@ -1125,7 +1392,6 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
     );
   }
 
-  // ── Lecturer entry ────────────────────────────────────────────────────────────
   if (!currentLecturer && invRole === "lecturer") {
     return (
       <div style={S.center}>
@@ -1145,10 +1411,9 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
     );
   }
 
-  // ── Student view (read + request) ────────────────────────────────────────────
   if (invStudent && !currentLecturer) {
     const activeLoansAll = (loans||[]).filter(l=>l.status==="active");
-    const condColor = (c) => c==="Good"?"#22c55e":c==="Fair"?"#f59e0b":"#ef4444";
+    const condColor = (c) => c==="Good"?"#16a34a":c==="Fair"?"#d97706":"#dc2626";
     return (
       <div style={S.page}>
         <div style={S.header}>
@@ -1161,7 +1426,6 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
           </div>
         </div>
 
-        {/* Student tabs */}
         <div style={{...S.tabs,flexWrap:"wrap"}}>
           {[["store","🏛 Store Room"],["holdings","🎓 Student Holdings"],["myloans","📋 My Requests"]].map(([t,l])=>(
             <div key={t} style={{...S.tab,...(tab===t?S.tabActive:{})}} onClick={()=>setTab(t)}>
@@ -1170,11 +1434,10 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
           ))}
         </div>
 
-        {/* Store Room — browse and request */}
         {tab==="store" && (
           <div style={S.listWrap}>
-            <div style={{...S.sectionHeader,background:"linear-gradient(135deg,#1e1b4b,#1e293b)",borderColor:"#3730a3",marginBottom:16}}>
-              <div style={{fontWeight:700,color:"#a5b4fc",fontSize:13}}>🏛 Department Store Room</div>
+            <div style={{...S.sectionHeader,background:"linear-gradient(135deg,#dbeafe,#e0f2fe)",borderColor:"#3b82f6",marginBottom:16}}>
+              <div style={{fontWeight:700,color:"#1d4ed8",fontSize:13}}>🏛 Department Store Room</div>
               <div style={{fontSize:11,color:"#1e40af",marginTop:2}}>Browse available instruments and request to borrow</div>
             </div>
             {(instruments||[]).length===0
@@ -1185,55 +1448,18 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
                 const myLoan=(loans||[]).find(l=>l.instId===inst.id&&l.borrowerId===invStudent.studentNo&&l.status==="active");
                 const myPending=(loans||[]).find(l=>l.instId===inst.id&&l.borrowerId===invStudent.studentNo&&l.status==="pending");
                 return (
-                  <div key={inst.id} style={S.formCard}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-                      <div>
-                        <div style={{fontWeight:700,fontSize:14,color:"#1e3a5f"}}>{inst.name}</div>
-                        <div style={{fontSize:12,color:"#1e40af"}}>{inst.type}</div>
-                      </div>
-                      <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,
-                        background:condColor(inst.condition)+"22",color:condColor(inst.condition)}}>
-                        {inst.condition}
-                      </span>
-                    </div>
-                    <div style={{fontSize:12,marginBottom:8,fontWeight:600,color:available>0?"#22c55e":"#ef4444"}}>
-                      {available>0?`${available} available`:"Currently unavailable"}
-                    </div>
-                    {myLoan&&<div style={{fontSize:12,color:"#f59e0b",marginBottom:6}}>✓ You currently have this instrument</div>}
-                    {myPending&&<div style={{fontSize:12,color:"#6366f1",marginBottom:6}}>⏳ Your request is pending approval</div>}
-                    {!myLoan&&!myPending&&available>0&&(
-                      requestInstId===inst.id
-                        ? <div>
-                            <input style={{...S.input,marginBottom:8,fontSize:13}}
-                              placeholder="Why do you need this instrument?"
-                              value={requestNote} onChange={e=>setRequestNote(e.target.value)} />
-                            <div style={{display:"flex",gap:6}}>
-                              <Btn onClick={()=>{
-                                if(!requestNote.trim())return showToast("Please describe your purpose","error");
-                                const loan={id:Date.now().toString(),instId:inst.id,borrowerName:invStudent.name,
-                                  borrowerId:invStudent.studentNo,borrowerType:"student",purpose:requestNote.trim(),
-                                  status:"pending",requestedAt:new Date().toISOString(),damageReports:[]};
-                                setLoans(prev=>[...(prev||[]),loan]);
-                                setRequestInstId(null); setRequestNote("");
-                                showToast("Request submitted — awaiting lecturer approval.");
-                              }} label="Submit Request" primary small />
-                              <Btn onClick={()=>{setRequestInstId(null);setRequestNote("");}} label="Cancel" small />
-                            </div>
-                          </div>
-                        : <Btn onClick={()=>setRequestInstId(inst.id)} label="📤 Request to Borrow" small />
-                    )}
-                  </div>
+                  <InvStudentStoreCard key={inst.id} inst={inst} available={available} condColor={condColor}
+                    myLoan={myLoan} myPending={myPending} student={invStudent} setLoans={setLoans} showToast={showToast} />
                 );
               })
             }
           </div>
         )}
 
-        {/* Student Holdings */}
         {tab==="holdings" && (
           <div style={S.listWrap}>
-            <div style={{...S.sectionHeader,background:"linear-gradient(135deg,#14532d,#1e293b)",borderColor:"#22c55e",marginBottom:16}}>
-              <div style={{fontWeight:700,color:"#86efac",fontSize:13}}>🎓 Instruments With Students</div>
+            <div style={{...S.sectionHeader,background:"linear-gradient(135deg,#dcfce7,#ecfdf5)",borderColor:"#22c55e",marginBottom:16}}>
+              <div style={{fontWeight:700,color:"#15803d",fontSize:13}}>🎓 Instruments With Students</div>
               <div style={{fontSize:11,color:"#1e40af",marginTop:2}}>Department instruments declared by students</div>
             </div>
             {(studentInstruments||[]).length===0
@@ -1241,11 +1467,11 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
               : (studentInstruments||[]).map(inst=>{
                 const isMe=inst.studentNo===invStudent.studentNo;
                 return (
-                  <div key={inst.id} style={{...S.classCard,borderColor:isMe?"#6366f1":"#1e293b"}}>
+                  <div key={inst.id} style={{...S.classCard,borderColor:isMe?"#1d4ed8":"#bfdbfe"}}>
                     <div style={{flex:1}}>
-                      <div style={{fontWeight:700,color:isMe?"#a5b4fc":"#e2e8f0"}}>{inst.name}</div>
-                      <div style={{fontSize:12,color:"#1e40af"}}>{inst.type}</div>
-                      <div style={{fontSize:12,color:isMe?"#6366f1":"#94a3b8",marginTop:2}}>
+                      <div style={{fontWeight:700,color:isMe?"#1d4ed8":"#1e3a5f"}}>{inst.name}</div>
+                      <div style={{fontSize:12,color:"#4b6cb7"}}>{inst.type}</div>
+                      <div style={{fontSize:12,color:isMe?"#1d4ed8":"#4b6cb7",marginTop:2,fontWeight:isMe?700:400}}>
                         {isMe?"👤 You":"👤 "+inst.studentName}
                       </div>
                     </div>
@@ -1260,22 +1486,21 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
           </div>
         )}
 
-        {/* My Requests */}
         {tab==="myloans" && (
           <div style={S.listWrap}>
             {(loans||[]).filter(l=>l.borrowerId===invStudent.studentNo).length===0
               ? <Empty msg="You have no instrument requests yet." />
               : [...(loans||[])].filter(l=>l.borrowerId===invStudent.studentNo).reverse().map(loan=>{
                 const inst=(instruments||[]).find(i=>i.id===loan.instId);
-                const statusColor=loan.status==="active"?"#f59e0b":loan.status==="pending"?"#6366f1":loan.status==="returned"?"#22c55e":"#ef4444";
+                const statusColor=loan.status==="active"?"#d97706":loan.status==="pending"?"#1d4ed8":loan.status==="returned"?"#16a34a":"#dc2626";
                 return (
                   <div key={loan.id} style={S.classCard}>
                     <div style={{flex:1}}>
                       <div style={{fontWeight:700,color:"#1e3a5f"}}>{inst?.name||"Unknown"}</div>
                       <div style={{fontSize:12,color:"#1e40af"}}>{loan.purpose}</div>
-                      <div style={{fontSize:11,color:"#1e40af"}}>{new Date(loan.requestedAt).toLocaleDateString()}</div>
+                      <div style={{fontSize:11,color:"#4b6cb7"}}>{new Date(loan.requestedAt).toLocaleDateString()}</div>
                       {(loan.damageReports||[]).length>0&&(
-                        <div style={{fontSize:11,color:"#ef4444",marginTop:2}}>⚠ {loan.damageReports.length} damage report{loan.damageReports.length>1?"s":""}</div>
+                        <div style={{fontSize:11,color:"#dc2626",marginTop:2}}>⚠ {loan.damageReports.length} damage report{loan.damageReports.length>1?"s":""}</div>
                       )}
                     </div>
                     <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,flexShrink:0,
@@ -1364,7 +1589,7 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
 
   const getInst = (id) => (instruments||[]).find(i=>i.id===id);
 
-  const condColor = (c) => c==="Good"?"#22c55e":c==="Fair"?"#f59e0b":c==="Poor"?"#ef4444":c==="Under Repair"?"#6366f1":"#ef4444";
+  const condColor = (c) => c==="Good"?"#16a34a":c==="Fair"?"#d97706":c==="Poor"?"#dc2626":c==="Under Repair"?"#1d4ed8":"#dc2626";
 
   return (
     <div style={S.page}>
@@ -1373,22 +1598,20 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
           <div>
             <div style={S.headerTitle}>Instrument Store</div>
             <div style={S.headerSub}>NOCEN Music Dept · {currentLecturer.name}
-              {isLecturerAdmin&&<span style={{marginLeft:6,fontSize:10,background:"rgba(255,255,255,0.2)",color:"#fff",borderRadius:99,padding:"2px 6px"}}>In Charge</span>}
-              {!isLecturerAdmin&&<span style={{marginLeft:6,fontSize:10,background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.6)",borderRadius:99,padding:"2px 6px"}}>View Only</span>}
+              {isLecturerAdmin&&<span style={{marginLeft:6,fontSize:10,background:"rgba(255,255,255,0.25)",color:"#fff",borderRadius:99,padding:"2px 6px",fontWeight:700}}>In Charge</span>}
+              {!isLecturerAdmin&&<span style={{marginLeft:6,fontSize:10,background:"rgba(255,255,255,0.12)",color:"rgba(255,255,255,0.75)",borderRadius:99,padding:"2px 6px"}}>View Only</span>}
             </div>
           </div>
           <Btn onClick={()=>{setCurrentLecturer(null);setView("splash");}} label="Sign Out" small />
         </div>
       </div>
 
-      {/* Summary chips */}
       <div style={S.chips}>
-        <Chip label="In Store" value={(instruments||[]).reduce((a,i)=>a+Number(i.quantity||1),0)} color="#6366f1" />
-        <Chip label="With Students" value={(studentInstruments||[]).length} color="#22c55e" />
-        <Chip label="On Loan" value={activeLoans.length} color="#f59e0b" />
+        <Chip label="In Store" value={(instruments||[]).reduce((a,i)=>a+Number(i.quantity||1),0)} color="#1d4ed8" />
+        <Chip label="With Students" value={(studentInstruments||[]).length} color="#16a34a" />
+        <Chip label="On Loan" value={activeLoans.length} color="#d97706" />
       </div>
 
-      {/* Tabs */}
       <div style={{...S.tabs,flexWrap:"wrap"}}>
         {[
           ["inventory","🎸 Inventory"],
@@ -1403,18 +1626,16 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
         ))}
       </div>
 
-      {/* ── INVENTORY TAB ── */}
       {tab==="inventory" && (
         <div style={S.listWrap}>
 
-          {/* Pending loan requests */}
           {pendingLoans.length>0&&isLecturerAdmin&&(
             <div style={{...S.formCard,borderColor:"#f59e0b",marginBottom:16}}>
-              <div style={{fontWeight:700,color:"#f59e0b",marginBottom:8}}>⏳ {pendingLoans.length} Pending Loan Request{pendingLoans.length>1?"s":""}</div>
+              <div style={{fontWeight:700,color:"#d97706",marginBottom:8}}>⏳ {pendingLoans.length} Pending Loan Request{pendingLoans.length>1?"s":""}</div>
               {pendingLoans.map(loan=>{
                 const inst=getInst(loan.instId);
                 return (
-                  <div key={loan.id} style={{borderBottom:"1px solid #1e293b",paddingBottom:10,marginBottom:10}}>
+                  <div key={loan.id} style={{borderBottom:"1px solid #fde68a",paddingBottom:10,marginBottom:10}}>
                     <div style={{fontSize:13,fontWeight:700,color:"#1e3a5f"}}>{loan.borrowerName}</div>
                     <div style={{fontSize:12,color:"#4b6cb7"}}>wants: {inst?.name||"Unknown"} · {loan.purpose}</div>
                     <div style={{display:"flex",gap:6,marginTop:6}}>
@@ -1427,14 +1648,13 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
             </div>
           )}
 
-          {/* ── SECTION A: DEPARTMENT STORE ── */}
-          <div style={{...S.sectionHeader, background:"linear-gradient(135deg,#1e1b4b,#1e293b)", borderColor:"#3730a3"}}>
-            <div style={{fontWeight:700,color:"#a5b4fc",fontSize:13}}>🏛 Department Store Room</div>
+          <div style={{...S.sectionHeader, background:"linear-gradient(135deg,#dbeafe,#e0f2fe)", borderColor:"#3b82f6"}}>
+            <div style={{fontWeight:700,color:"#1d4ed8",fontSize:13}}>🏛 Department Store Room</div>
             <div style={{fontSize:11,color:"#1e40af",marginTop:2}}>Instruments physically in the department — entered by lecturer in charge</div>
           </div>
 
           {(instruments||[]).length===0
-            ? <div style={{textAlign:"center",color:"#1e40af",padding:"20px 0",fontSize:13}}>
+            ? <div style={{textAlign:"center",color:"#4b6cb7",padding:"20px 0",fontSize:13}}>
                 No store room instruments recorded yet.
                 {isLecturerAdmin&&<div style={{marginTop:8}}><Btn onClick={()=>setTab("add")} label="➕ Add Instrument" small /></div>}
               </div>
@@ -1446,8 +1666,8 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                     <div>
                       <div style={{fontWeight:700,fontSize:15,color:"#1e3a5f"}}>{inst.name}</div>
-                      <div style={{fontSize:12,color:"#1e40af"}}>{inst.type}{inst.serialNo?" · S/N: "+inst.serialNo:""}</div>
-                      {inst.location&&<div style={{fontSize:12,color:"#1e40af"}}>📍 {inst.location}</div>}
+                      <div style={{fontSize:12,color:"#4b6cb7"}}>{inst.type}{inst.serialNo?" · S/N: "+inst.serialNo:""}</div>
+                      {inst.location&&<div style={{fontSize:12,color:"#4b6cb7"}}>📍 {inst.location}</div>}
                     </div>
                     <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,
                       background:condColor(inst.condition)+"22",color:condColor(inst.condition)}}>
@@ -1456,8 +1676,8 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
                   </div>
                   <div style={{display:"flex",gap:16,marginBottom:10,flexWrap:"wrap"}}>
                     <div style={{fontSize:12,color:"#4b6cb7"}}>Qty: <b style={{color:"#1e3a5f"}}>{inst.quantity}</b></div>
-                    <div style={{fontSize:12,color:"#4b6cb7"}}>On loan: <b style={{color:"#f59e0b"}}>{onLoan}</b></div>
-                    <div style={{fontSize:12,color:"#4b6cb7"}}>Available: <b style={{color:available>0?"#22c55e":"#ef4444"}}>{available}</b></div>
+                    <div style={{fontSize:12,color:"#4b6cb7"}}>On loan: <b style={{color:"#d97706"}}>{onLoan}</b></div>
+                    <div style={{fontSize:12,color:"#4b6cb7"}}>Available: <b style={{color:available>0?"#16a34a":"#dc2626"}}>{available}</b></div>
                   </div>
                   {isLecturerAdmin&&(
                     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
@@ -1480,28 +1700,27 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
                         </div>
                       : <Btn onClick={()=>setRequestInstId(inst.id)} label="📤 Request to Borrow" small />
                   )}
-                  {available===0&&<div style={{fontSize:12,color:"#ef4444",marginTop:4}}>All units currently on loan</div>}
+                  {available===0&&<div style={{fontSize:12,color:"#dc2626",marginTop:4,fontWeight:600}}>All units currently on loan</div>}
                 </div>
               );
             })
           }
 
-          {/* ── SECTION B: INSTRUMENTS WITH STUDENTS ── */}
-          <div style={{...S.sectionHeader, background:"linear-gradient(135deg,#14532d,#1e293b)", borderColor:"#22c55e", marginTop:16}}>
-            <div style={{fontWeight:700,color:"#86efac",fontSize:13}}>🎓 Instruments With Students</div>
+          <div style={{...S.sectionHeader, background:"linear-gradient(135deg,#dcfce7,#ecfdf5)", borderColor:"#22c55e", marginTop:16}}>
+            <div style={{fontWeight:700,color:"#15803d",fontSize:13}}>🎓 Instruments With Students</div>
             <div style={{fontSize:11,color:"#1e40af",marginTop:2}}>Declared by students — department-issued instruments in student possession</div>
           </div>
 
           {(studentInstruments||[]).length===0
-            ? <div style={{textAlign:"center",color:"#1e40af",padding:"20px 0",fontSize:13}}>No students have declared instruments yet.</div>
+            ? <div style={{textAlign:"center",color:"#4b6cb7",padding:"20px 0",fontSize:13}}>No students have declared instruments yet.</div>
             : (studentInstruments||[]).map(inst=>(
               <div key={inst.id} style={{...S.classCard}}>
                 <div style={{flex:1}}>
                   <div style={{fontWeight:700,color:"#1e3a5f"}}>{inst.name}</div>
                   <div style={{fontSize:12,color:"#4b6cb7"}}>{inst.type}{inst.serialNo?" · S/N: "+inst.serialNo:""}</div>
-                  <div style={{fontSize:12,color:"#6366f1",marginTop:2}}>👤 {inst.studentName} · {inst.studentNo}</div>
+                  <div style={{fontSize:12,color:"#1d4ed8",marginTop:2,fontWeight:600}}>👤 {inst.studentName} · {inst.studentNo}</div>
                   {(inst.damageReports||[]).length>0&&(
-                    <div style={{fontSize:11,color:"#ef4444",marginTop:2}}>⚠ {inst.damageReports.length} damage report{inst.damageReports.length>1?"s":""}</div>
+                    <div style={{fontSize:11,color:"#dc2626",marginTop:2}}>⚠ {inst.damageReports.length} damage report{inst.damageReports.length>1?"s":""}</div>
                   )}
                 </div>
                 <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,flexShrink:0,
@@ -1515,7 +1734,6 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
         </div>
       )}
 
-      {/* ── ACTIVE LOANS TAB ── */}
       {tab==="loans" && (
         <div style={S.listWrap}>
           {activeLoans.length===0?<Empty msg="No instruments currently on loan."/>:
@@ -1529,22 +1747,20 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
                       <div style={{fontWeight:700,color:"#1e3a5f"}}>{inst?.name||"Unknown"}</div>
                       <div style={{fontSize:12,color:"#4b6cb7"}}>Borrowed by: {loan.borrowerName}</div>
                       <div style={{fontSize:12,color:"#1e40af"}}>Purpose: {loan.purpose}</div>
-                      <div style={{fontSize:11,color:"#1e40af"}}>Since: {new Date(loan.approvedAt).toLocaleDateString()}</div>
+                      <div style={{fontSize:11,color:"#4b6cb7"}}>Since: {new Date(loan.approvedAt).toLocaleDateString()}</div>
                     </div>
-                    <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,background:"#f59e0b22",color:"#f59e0b"}}>On Loan</span>
+                    <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,background:"#fef3c7",color:"#d97706"}}>On Loan</span>
                   </div>
 
-                  {/* Damage reports */}
                   {(loan.damageReports||[]).length>0&&(
-                    <div style={{marginTop:8,background:"#7f1d1d22",borderRadius:8,padding:"8px 10px"}}>
-                      <div style={{fontSize:11,color:"#ef4444",fontWeight:700,marginBottom:4}}>⚠ Damage Reports</div>
+                    <div style={{marginTop:8,background:"#fee2e2",borderRadius:8,padding:"8px 10px"}}>
+                      <div style={{fontSize:11,color:"#be123c",fontWeight:700,marginBottom:4}}>⚠ Damage Reports</div>
                       {loan.damageReports.map((r,i)=>(
-                        <div key={i} style={{fontSize:12,color:"#fca5a5",marginBottom:2}}>{r.reporter}: {r.note}</div>
+                        <div key={i} style={{fontSize:12,color:"#be123c",marginBottom:2}}>{r.reporter}: {r.note}</div>
                       ))}
                     </div>
                   )}
 
-                  {/* Report damage — borrower or admin */}
                   {(isMyLoan||isLecturerAdmin)&&(
                     <div style={{marginTop:8}}>
                       <input style={{...S.input,marginBottom:6,fontSize:12}} placeholder="Report damage (describe issue)..."
@@ -1554,9 +1770,8 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
                     </div>
                   )}
 
-                  {/* Return — admin only */}
                   {isLecturerAdmin&&(
-                    <div style={{marginTop:8,borderTop:"1px solid #1e293b",paddingTop:8}}>
+                    <div style={{marginTop:8,borderTop:"1px solid #dbeafe",paddingTop:8}}>
                       <input style={{...S.input,marginBottom:6,fontSize:12}} placeholder="Return note / condition on return (optional)"
                         value={returnNote[loan.id]||""}
                         onChange={e=>setReturnNote(prev=>({...prev,[loan.id]:e.target.value}))} />
@@ -1575,7 +1790,6 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
         </div>
       )}
 
-      {/* ── HISTORY TAB ── */}
       {tab==="history" && (
         <div style={S.listWrap}>
           {returnedLoans.length===0?<Empty msg="No returned or rejected loans yet."/>:
@@ -1587,24 +1801,24 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
                     <div>
                       <div style={{fontWeight:700,color:"#1e3a5f"}}>{inst?.name||"Unknown"}</div>
                       <div style={{fontSize:12,color:"#4b6cb7"}}>{loan.borrowerName} · {loan.purpose}</div>
-                      <div style={{fontSize:11,color:"#1e40af"}}>
+                      <div style={{fontSize:11,color:"#4b6cb7"}}>
                         {loan.status==="returned"
                           ? `Returned: ${new Date(loan.returnedAt).toLocaleDateString()}`
                           : "Rejected"}
                       </div>
                     </div>
                     <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,
-                      background:loan.status==="returned"?"#14532d22":"#7f1d1d22",
-                      color:loan.status==="returned"?"#22c55e":"#ef4444"}}>
+                      background:loan.status==="returned"?"#dcfce7":"#fee2e2",
+                      color:loan.status==="returned"?"#16a34a":"#dc2626"}}>
                       {loan.status==="returned"?"Returned":"Rejected"}
                     </span>
                   </div>
                   {(loan.damageReports||[]).length>0&&(
-                    <div style={{marginTop:6,fontSize:12,color:"#ef4444"}}>
+                    <div style={{marginTop:6,fontSize:12,color:"#dc2626"}}>
                       ⚠ {loan.damageReports.length} damage report{loan.damageReports.length>1?"s":""}
                     </div>
                   )}
-                  {loan.returnNote&&<div style={{fontSize:12,color:"#1e40af",marginTop:4}}>Note: {loan.returnNote}</div>}
+                  {loan.returnNote&&<div style={{fontSize:12,color:"#4b6cb7",marginTop:4}}>Note: {loan.returnNote}</div>}
                 </div>
               );
             })
@@ -1612,29 +1826,26 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
         </div>
       )}
 
-      {/* ── STUDENT RECORDS TAB ── */}
       {tab==="students"&&(
         <div style={S.listWrap}>
           {(studentInstruments||[]).length===0
             ? <Empty msg="No students have registered instruments yet."/>
             : <>
-                {/* Summary by type */}
                 <div style={S.formCard}>
                   <div style={{fontWeight:700,color:"#1e3a5f",marginBottom:10}}>Department Instrument Summary</div>
                   {["String","Wind","Keyboard","Percussion","Vocal","Other"].map(type=>{
                     const count=(studentInstruments||[]).filter(i=>i.type===type).length;
                     if(!count) return null;
-                    return <div key={type} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1e293b",fontSize:13}}>
+                    return <div key={type} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #dbeafe",fontSize:13}}>
                       <span style={{color:"#1e40af"}}>{type}</span>
-                      <span style={{color:"#6366f1",fontWeight:700}}>{count}</span>
+                      <span style={{color:"#1d4ed8",fontWeight:700}}>{count}</span>
                     </div>;
                   })}
                   <div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",fontSize:13,fontWeight:700}}>
                     <span style={{color:"#1e3a5f"}}>Total</span>
-                    <span style={{color:"#22c55e"}}>{(studentInstruments||[]).length}</span>
+                    <span style={{color:"#16a34a"}}>{(studentInstruments||[]).length}</span>
                   </div>
                 </div>
-                {/* Export button */}
                 <Btn onClick={()=>{
                   const rows=[["Student Name","Student No","Instrument","Type","Serial No","Condition","Registered","Notes","Damage Reports"]];
                   (studentInstruments||[]).forEach(i=>{
@@ -1646,20 +1857,19 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
                   const a=document.createElement("a"); a.href=url; a.download=`NOCEN_Instrument_Register_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
                   showToast("Instrument register exported!");
                 }} label="📥 Export Instrument Register" primary full style={{marginBottom:12}} />
-                {/* Individual records */}
                 {[...(studentInstruments||[])].sort((a,b)=>a.studentName.localeCompare(b.studentName)).map(inst=>{
-                  const condColor=(c)=>c==="Good"?"#22c55e":c==="Fair"?"#f59e0b":"#ef4444";
+                  const cColor=(c)=>c==="Good"?"#16a34a":c==="Fair"?"#d97706":"#dc2626";
                   return (
                     <div key={inst.id} style={S.classCard}>
                       <div style={{flex:1}}>
-                        <div style={{fontWeight:700}}>{inst.studentName}</div>
+                        <div style={{fontWeight:700,color:"#1e3a5f"}}>{inst.studentName}</div>
                         <div style={{fontSize:12,color:"#4b6cb7"}}>{inst.studentNo}</div>
                         <div style={{fontSize:13,color:"#1e40af",marginTop:4}}>{inst.name} · {inst.type}</div>
-                        {inst.serialNo&&<div style={{fontSize:11,color:"#1e40af"}}>S/N: {inst.serialNo}</div>}
-                        {(inst.damageReports||[]).length>0&&<div style={{fontSize:11,color:"#ef4444",marginTop:2}}>⚠ {inst.damageReports.length} damage report{inst.damageReports.length>1?"s":""}</div>}
+                        {inst.serialNo&&<div style={{fontSize:11,color:"#4b6cb7"}}>S/N: {inst.serialNo}</div>}
+                        {(inst.damageReports||[]).length>0&&<div style={{fontSize:11,color:"#dc2626",marginTop:2}}>⚠ {inst.damageReports.length} damage report{inst.damageReports.length>1?"s":""}</div>}
                       </div>
                       <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,
-                        background:condColor(inst.condition)+"22",color:condColor(inst.condition),flexShrink:0}}>
+                        background:cColor(inst.condition)+"22",color:cColor(inst.condition),flexShrink:0}}>
                         {inst.condition}
                       </span>
                     </div>
@@ -1670,7 +1880,6 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
         </div>
       )}
 
-      {/* ── ADD INSTRUMENT TAB (admin only) ── */}
       {tab==="add"&&isLecturerAdmin&&(
         <div style={S.listWrap}>
           <div style={S.formCard}>
