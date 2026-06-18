@@ -137,6 +137,80 @@ export default function App() {
 }
 
 // ── Splash ────────────────────────────────────────────────────────────────────
+// ── Install Prompt (PWA) ──────────────────────────────────────────────────────
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(window.navigator.userAgent) && !window.MSStream;
+}
+
+function InstallPrompt() {
+  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem("attendtrack_install_dismissed") === "1");
+  const [deferredEvent, setDeferredEvent] = useState(null);
+  const [showIOSHelp, setShowIOSHelp] = useState(false);
+
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault();
+      setDeferredEvent(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  if (isStandalone() || dismissed) return null;
+
+  const dismiss = () => {
+    sessionStorage.setItem("attendtrack_install_dismissed", "1");
+    setDismissed(true);
+  };
+
+  const handleInstallClick = async () => {
+    if (deferredEvent) {
+      deferredEvent.prompt();
+      const { outcome } = await deferredEvent.userChoice;
+      if (outcome === "accepted") setDismissed(true);
+      setDeferredEvent(null);
+    } else if (isIOS()) {
+      setShowIOSHelp(true);
+    }
+  };
+
+  // Don't show anything if neither an Android install prompt is available nor on iOS
+  if (!deferredEvent && !isIOS()) return null;
+
+  if (showIOSHelp) {
+    return (
+      <div style={S.installBanner}>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:700,fontSize:13,color:"#1e3a5f",marginBottom:4}}>📲 Add AttendTrack to your Home Screen</div>
+          <div style={{fontSize:12,color:"#1e40af",lineHeight:1.5}}>
+            1. Tap the <strong>Share</strong> icon at the bottom of Safari<br/>
+            2. Scroll down and tap <strong>"Add to Home Screen"</strong><br/>
+            3. Tap <strong>"Add"</strong> in the top corner
+          </div>
+          <div style={{fontSize:11,color:"#4b6cb7",marginTop:6,fontStyle:"italic"}}>This only works in Safari, not Chrome or other browsers on iPhone.</div>
+        </div>
+        <span style={{cursor:"pointer",fontSize:18,color:"#94a3b8",flexShrink:0,marginLeft:8}} onClick={dismiss}>✕</span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={S.installBanner}>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#1e3a5f",marginBottom:2}}>📲 Install AttendTrack</div>
+        <div style={{fontSize:12,color:"#1e40af"}}>Add it to your home screen for quick, full-screen access.</div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0,marginLeft:8}}>
+        <Btn onClick={handleInstallClick} label="Install" primary small />
+        <span style={{cursor:"pointer",fontSize:18,color:"#94a3b8"}} onClick={dismiss}>✕</span>
+      </div>
+    </div>
+  );
+}
+
 function Splash({ setView }) {
   return (
     <div style={S.center}>
@@ -155,6 +229,7 @@ function Splash({ setView }) {
         </div>
         <div style={S.copyright}>© Nwafor Orizu College of Education 2026</div>
       </div>
+      <InstallPrompt />
     </div>
   );
 }
@@ -1972,4 +2047,5 @@ const S = {
   todayBanner:{ display:"flex",alignItems:"center",gap:12,background:"linear-gradient(135deg,#dbeafe,#e0f2fe)",border:"2px solid #3b82f6",borderRadius:14,padding:"14px 16px",margin:"0 16px 16px" },
   codeInput:{ width:120,background:"#eff6ff",border:"3px solid #1d4ed8",borderRadius:8,padding:"8px 10px",color:"#1d4ed8",fontSize:20,fontWeight:800,letterSpacing:6,textAlign:"center",outline:"none" },
   sectionHeader:{ border:"2px solid",borderRadius:12,padding:"12px 16px",marginBottom:12 },
+  installBanner:{ display:"flex",alignItems:"flex-start",gap:12,background:"#ffffff",border:"1.5px solid #93c5fd",borderRadius:14,padding:"14px 16px",marginTop:24,maxWidth:400,width:"100%",boxShadow:"0 4px 16px rgba(29,78,216,0.12)" },
 };
