@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import {
   doc, getDoc, setDoc, onSnapshot, collection,
@@ -26,6 +26,14 @@ async function fbSet(docPath, value) {
     await setDoc(doc(db, ...docPath.split("/")), { value });
   } catch(e) { console.error(e); }
 }
+// Live listener — keeps this tab continuously in sync with Firebase so it can
+// never save a stale snapshot over changes made elsewhere. Returns an unsubscribe function.
+function fbListen(docPath, onChange) {
+  const ref = doc(db, ...docPath.split("/"));
+  return onSnapshot(ref, (snap) => {
+    onChange(snap.exists() ? snap.data().value : null);
+  }, (err) => console.error("Listener error for", docPath, err));
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
@@ -44,30 +52,63 @@ export default function App() {
   const [loans, setLoans]             = useState(null);
   const [studentInstruments, setStudentInstruments] = useState(null);
 
+  // Tracks the last value RECEIVED from Firebase for each collection, so we can
+  // tell a genuine local edit apart from an update echoed back by our own listener.
+  // Without this guard, every incoming snapshot would immediately re-save, and a
+  // tab that's been idle could never safely receive fresh data without clobbering it.
+  const lastFromServer = useRef({});
+
   useEffect(() => {
-    (async () => {
-      const s  = await fbGet("attendtrack/students");  setStudents(s  ?? {});
-      const c  = await fbGet("attendtrack/classes");   setClasses(c   ?? []);
-      const r  = await fbGet("attendtrack/records");   setRecords(r   ?? {});
-      const p  = await fbGet("attendtrack/pending");   setPending(p   ?? {});
-      const co = await fbGet("attendtrack/courses");   setCourses(co  ?? []);
-      const lc = await fbGet("attendtrack/lecturers"); setLecturers(lc ?? DEFAULT_LECTURERS);
-      const inv = await fbGet("attendtrack/instruments"); setInstruments(inv ?? []);
-      const ln  = await fbGet("attendtrack/loans");       setLoans(ln ?? []);
-      const si  = await fbGet("attendtrack/studentInstruments"); setStudentInstruments(si ?? []);
-      setLoading(false);
-    })();
+    const collections = {
+      students: { set: setStudents, fallback: {} },
+      classes: { set: setClasses, fallback: [] },
+      records: { set: setRecords, fallback: {} },
+      pending: { set: setPending, fallback: {} },
+      courses: { set: setCourses, fallback: [] },
+      lecturers: { set: setLecturers, fallback: DEFAULT_LECTURERS },
+      instruments: { set: setInstruments, fallback: [] },
+      loans: { set: setLoans, fallback: [] },
+      studentInstruments: { set: setStudentInstruments, fallback: [] },
+    };
+
+    let loadedCount = 0;
+    const totalCollections = Object.keys(collections).length;
+    const unsubscribers = [];
+
+    Object.entries(collections).forEach(([key, { set, fallback }]) => {
+      const unsub = fbListen(`attendtrack/${key}`, (value) => {
+        const resolved = value ?? fallback;
+        lastFromServer.current[key] = resolved;
+        set(resolved);
+        loadedCount += 1;
+        if (loadedCount >= totalCollections) setLoading(false);
+      });
+      unsubscribers.push(unsub);
+    });
+
+    return () => unsubscribers.forEach(unsub => unsub());
   }, []);
 
-  useEffect(() => { if (!loading && students  !== null) fbSet("attendtrack/students",  students);  }, [students,  loading]);
-  useEffect(() => { if (!loading && classes   !== null) fbSet("attendtrack/classes",   classes);   }, [classes,   loading]);
-  useEffect(() => { if (!loading && records   !== null) fbSet("attendtrack/records",   records);   }, [records,   loading]);
-  useEffect(() => { if (!loading && pending   !== null) fbSet("attendtrack/pending",   pending);   }, [pending,   loading]);
-  useEffect(() => { if (!loading && courses   !== null) fbSet("attendtrack/courses",   courses);   }, [courses,   loading]);
-  useEffect(() => { if (!loading && lecturers    !== null) fbSet("attendtrack/lecturers",  lecturers);   }, [lecturers,    loading]);
-  useEffect(() => { if (!loading && instruments !== null) fbSet("attendtrack/instruments", instruments); }, [instruments, loading]);
-  useEffect(() => { if (!loading && loans               !== null) fbSet("attendtrack/loans",             loans);             }, [loans,             loading]);
-  useEffect(() => { if (!loading && studentInstruments !== null) fbSet("attendtrack/studentInstruments", studentInstruments); }, [studentInstruments, loading]);
+  // Save helper — only writes to Firebase if the new value is actually different
+  // from what we last received FROM Firebase, so listener-driven updates never
+  // bounce straight back out as a redundant (or stale) save.
+  function saveIfChanged(key, value) {
+    if (loading || value === null) return;
+    const prev = lastFromServer.current[key];
+    if (JSON.stringify(prev) === JSON.stringify(value)) return;
+    lastFromServer.current[key] = value;
+    fbSet(`attendtrack/${key}`, value);
+  }
+
+  useEffect(() => { saveIfChanged("students", students); }, [students]);
+  useEffect(() => { saveIfChanged("classes", classes); }, [classes]);
+  useEffect(() => { saveIfChanged("records", records); }, [records]);
+  useEffect(() => { saveIfChanged("pending", pending); }, [pending]);
+  useEffect(() => { saveIfChanged("courses", courses); }, [courses]);
+  useEffect(() => { saveIfChanged("lecturers", lecturers); }, [lecturers]);
+  useEffect(() => { saveIfChanged("instruments", instruments); }, [instruments]);
+  useEffect(() => { saveIfChanged("loans", loans); }, [loans]);
+  useEffect(() => { saveIfChanged("studentInstruments", studentInstruments); }, [studentInstruments]);
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
