@@ -131,6 +131,41 @@ export default function App() {
   useEffect(() => { saveIfChanged("loans", loans); }, [loans]);
   useEffect(() => { saveIfChanged("studentInstruments", studentInstruments); }, [studentInstruments]);
 
+  // Automatic daily safety snapshot — separate from the manual download backup.
+  // Runs at most once per calendar day, only once every collection has genuinely
+  // loaded (never on a partially-loaded state), and only while an Admin is logged
+  // in. Writes to a SEPARATE Firestore path so it can never collide with or
+  // overwrite the live data paths. Keeps a rolling 7-day history.
+  useEffect(() => {
+    const allReady = ["students","classes","records","pending","courses","lecturers","instruments","loans","studentInstruments"]
+      .every(key => collectionReady.current[key]);
+    const isAdminLoggedIn = currentLecturer?.isAdmin || currentLecturer?.courses === "__all__";
+    if (!allReady || !isAdminLoggedIn) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    (async () => {
+      try {
+        const lastAuto = await fbGet("attendtrack_autobackups/_last");
+        if (lastAuto === today) return; // already snapshotted today
+        const snapshot = {
+          version: "1.1",
+          exportedAt: new Date().toISOString(),
+          data: {
+            students: students || {}, classes: classes || [], records: records || {},
+            pending: pending || {}, courses: courses || [], lecturers: lecturers || [],
+            instruments: instruments || [], loans: loans || [], studentInstruments: studentInstruments || []
+          }
+        };
+        await fbSet(`attendtrack_autobackups/${today}`, snapshot);
+        await fbSet("attendtrack_autobackups/_last", today);
+        // Prune anything older than 7 days so this never grows unbounded
+        const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7);
+        const oldDate = cutoff.toISOString().slice(0, 10);
+        await deleteDoc(doc(db, "attendtrack_autobackups", oldDate)).catch(() => {});
+      } catch (e) { console.error("Auto-backup failed:", e); }
+    })();
+  }, [currentLecturer, students, classes, records, pending, courses, lecturers, instruments, loans, studentInstruments]);
+
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3200);
@@ -190,6 +225,9 @@ export default function App() {
           lecturers={lecturers} setLecturers={setLecturers} students={students} setStudents={setStudents}
           classes={classes} setClasses={setClasses} records={records} setRecords={setRecords}
           pending={pending} setPending={setPending} courses={courses} setCourses={setCourses}
+          instruments={instruments} setInstruments={setInstruments}
+          loans={loans} setLoans={setLoans}
+          studentInstruments={studentInstruments} setStudentInstruments={setStudentInstruments}
           setView={setView} showToast={showToast} confirmedClasses={confirmedClasses}
           studentStats={studentStats} pct={pct} pctColor={pctColor}
           myCoursesForLecturer={myCoursesForLecturer} />
@@ -684,7 +722,94 @@ function LecturerLogin({ lecturers, onLogin, setView }) {
 }
 
 // ── Lecturer Dashboard ────────────────────────────────────────────────────────
-function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLecturers, students, setStudents, classes, setClasses, records, setRecords, pending, setPending, courses, setCourses, setView, showToast, confirmedClasses, studentStats, pct, pctColor, myCoursesForLecturer }) {
+// ── Backup Reminder Banner ────────────────────────────────────────────────────
+function BackupReminderBanner() {
+  const lastBackupStr = localStorage.getItem("attendtrack_last_manual_backup");
+  const daysSince = lastBackupStr
+    ? Math.floor((Date.now() - new Date(lastBackupStr).getTime()) / (1000*60*60*24))
+    : null;
+  const overdue = daysSince === null || daysSince >= 7;
+  if (!overdue) return null;
+  return (
+    <div style={{...S.formCard, borderColor:"#f59e0b", background:"#fffbeb", display:"flex", alignItems:"flex-start", gap:10}}>
+      <span style={{fontSize:20}}>⏰</span>
+      <div>
+        <div style={{fontWeight:700, color:"#92400e", fontSize:13}}>
+          {daysSince === null ? "You have not downloaded a backup yet" : `It's been ${daysSince} days since your last backup`}
+        </div>
+        <div style={{fontSize:12, color:"#92400e", marginTop:2}}>
+          Download a fresh copy below and save it somewhere outside the app — email it to yourself or save it to Google Drive.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Auto-Backup Restore (emergency fallback to last 7 daily snapshots) ───────
+function AutoBackupRestore({ setStudents, setClasses, setRecords, setPending, setCourses, setLecturers, setInstruments, setLoans, setStudentInstruments, showToast }) {
+  const [open, setOpen] = useState(false);
+  const [dates, setDates] = useState(null);
+  const [loadingDates, setLoadingDates] = useState(false);
+
+  const loadDates = async () => {
+    setLoadingDates(true);
+    const found = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().slice(0, 10);
+      const snap = await fbGet(`attendtrack_autobackups/${dateStr}`);
+      if (snap) found.push({ date: dateStr, snap });
+    }
+    setDates(found);
+    setLoadingDates(false);
+  };
+
+  const restoreFrom = (snap) => {
+    const d = snap.data;
+    if (!d) return showToast("That snapshot looks invalid.", "error");
+    if (d.students) setStudents(d.students);
+    if (d.classes) setClasses(d.classes);
+    if (d.records) setRecords(d.records);
+    if (d.pending) setPending(d.pending);
+    if (d.courses) setCourses(d.courses);
+    if (d.lecturers) setLecturers(d.lecturers);
+    if (d.instruments) setInstruments(d.instruments);
+    if (d.loans) setLoans(d.loans);
+    if (d.studentInstruments) setStudentInstruments(d.studentInstruments);
+    showToast("Restored from automatic backup.");
+    setOpen(false);
+  };
+
+  return (
+    <div style={{marginTop:14, borderTop:"1px solid #dbeafe", paddingTop:10}}>
+      <div
+        onClick={() => { setOpen(!open); if (!open && !dates) loadDates(); }}
+        style={{fontSize:12, color:"#1d4ed8", cursor:"pointer", fontWeight:700}}>
+        {open ? "▾" : "▸"} Emergency: restore from automatic daily backup
+      </div>
+      {open && (
+        <div style={{marginTop:8}}>
+          <div style={{fontSize:11, color:"#4b6cb7", marginBottom:8}}>
+            The system automatically saves a safety snapshot once a day. Use this only if you have no manual backup file and need to recover recent data.
+          </div>
+          {loadingDates && <div style={{fontSize:12, color:"#1e40af"}}>Checking available snapshots…</div>}
+          {dates && dates.length === 0 && <div style={{fontSize:12, color:"#1e40af"}}>No automatic snapshots found yet.</div>}
+          {dates && dates.map(({date, snap}) => (
+            <div key={date} style={{display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:"1px solid #eef2ff"}}>
+              <span style={{fontSize:12, color:"#1e3a5f"}}>{date}</span>
+              <span style={{fontSize:11, color:"#1d4ed8", cursor:"pointer", fontWeight:700}}
+                onClick={() => { if (window.confirm(`Restore data from ${date}? This will overwrite current data.`)) restoreFrom(snap); }}>
+                Restore this
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLecturers, students, setStudents, classes, setClasses, records, setRecords, pending, setPending, courses, setCourses, instruments, setInstruments, loans, setLoans, studentInstruments, setStudentInstruments, setView, showToast, confirmedClasses, studentStats, pct, pctColor, myCoursesForLecturer }) {
 
   const handleLogin = (lec) => {
     if (!lec) { showToast("Incorrect PIN", "error"); return; }
@@ -1128,18 +1253,21 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
             </div>
           </div>
 
+          {isAdmin&&<BackupReminderBanner />}
+
           {isAdmin&&(
             <div style={S.formCard}>
               <div style={{fontWeight:700,marginBottom:4,color:"#1e3a5f"}}>💾 Backup & Restore Data</div>
               <div style={{fontSize:12,color:"#1e40af",marginBottom:12}}>Download a full backup weekly. Restore if data is ever lost.</div>
               <Btn onClick={()=>{
                 try {
-                  const backup = { version:"1.0", exportedAt:new Date().toISOString(), school:"Nwafor Orizu College of Education", department:"Music", data:{ students:students||{}, classes:classes||[], records:records||{}, pending:pending||{}, courses:courses||[], lecturers:lecturers||[] }};
+                  const backup = { version:"1.1", exportedAt:new Date().toISOString(), school:"Nwafor Orizu College of Education", department:"Music", data:{ students:students||{}, classes:classes||[], records:records||{}, pending:pending||{}, courses:courses||[], lecturers:lecturers||[], instruments:instruments||[], loans:loans||[], studentInstruments:studentInstruments||[] }};
                   const blob = new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
                   const url  = URL.createObjectURL(blob);
                   const a    = document.createElement("a");
                   a.href=url; a.download=`AttendTrack_Backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
                   URL.revokeObjectURL(url);
+                  localStorage.setItem("attendtrack_last_manual_backup", new Date().toISOString());
                   showToast("Backup downloaded!");
                 } catch(e){ showToast("Backup failed: "+e.message,"error"); }
               }} label="⬇ Download Full Backup" primary full />
@@ -1162,6 +1290,9 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                         if(d.pending)   setPending(d.pending);
                         if(d.courses)   setCourses(d.courses);
                         if(d.lecturers) setLecturers(d.lecturers);
+                        if(d.instruments) setInstruments(d.instruments);
+                        if(d.loans) setLoans(d.loans);
+                        if(d.studentInstruments) setStudentInstruments(d.studentInstruments);
                         showToast("Data restored from backup!");
                       } catch { showToast("Could not read backup file","error"); }
                     };
@@ -1169,6 +1300,11 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                   }} />
                 </label>
               </div>
+              <AutoBackupRestore
+                setStudents={setStudents} setClasses={setClasses} setRecords={setRecords}
+                setPending={setPending} setCourses={setCourses} setLecturers={setLecturers}
+                setInstruments={setInstruments} setLoans={setLoans} setStudentInstruments={setStudentInstruments}
+                showToast={showToast} />
             </div>
           )}
 
