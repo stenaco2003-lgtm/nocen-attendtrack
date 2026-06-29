@@ -46,9 +46,14 @@ export default function App() {
 
   // Tracks the last value RECEIVED from Firebase for each collection, so we can
   // tell a genuine local edit apart from an update echoed back by our own listener.
-  // Without this guard, every incoming snapshot would immediately re-save, and a
-  // tab that's been idle could never safely receive fresh data without clobbering it.
   const lastFromServer = useRef({});
+
+  // Tracks which collections have genuinely received at least one real snapshot
+  // from Firebase. This is the ONLY thing allowed to unlock saving for a given
+  // collection — nothing else, including any display-only loading timeout, may
+  // set a collection's "ready" flag. This is what actually prevents writing an
+  // empty/default value over real data during a slow first load.
+  const collectionReady = useRef({});
 
   useEffect(() => {
     const collections = {
@@ -79,14 +84,15 @@ export default function App() {
         (snap) => {
           const resolved = (snap.exists() ? snap.data().value : null) ?? fallback;
           lastFromServer.current[key] = resolved;
+          collectionReady.current[key] = true;
           set(resolved);
           markLoaded(key);
         },
         (err) => {
-          // A failed listener must not block the rest of the app from loading.
-          // Fall back to this collection's safe default and mark it loaded anyway.
+          // A failed listener must not block the REST of the app from loading,
+          // but it must also NOT be treated as ready-to-save — we genuinely do
+          // not know the real state of this collection, so saving stays locked.
           console.error("Listener error for", key, err);
-          lastFromServer.current[key] = fallback;
           set(fallback);
           markLoaded(key);
         }
@@ -94,18 +100,21 @@ export default function App() {
       unsubscribers.push(unsub);
     });
 
-    // Safety net: even if something unexpected stops a listener from ever
-    // calling back, never leave the app stuck on the loading screen forever.
-    const safetyTimer = setTimeout(() => setLoading(false), 8000);
+    // Display-only safety net: if something stops a listener from ever calling
+    // back, stop showing the loading spinner so the rest of the app is usable.
+    // This must NEVER unlock saving for a collection that hasn't truly loaded —
+    // collectionReady is intentionally untouched here.
+    const spinnerTimer = setTimeout(() => setLoading(false), 8000);
 
-    return () => { unsubscribers.forEach(unsub => unsub()); clearTimeout(safetyTimer); };
+    return () => { unsubscribers.forEach(unsub => unsub()); clearTimeout(spinnerTimer); };
   }, []);
 
-  // Save helper — only writes to Firebase if the new value is actually different
-  // from what we last received FROM Firebase, so listener-driven updates never
-  // bounce straight back out as a redundant (or stale) save.
+  // Save helper — refuses to write a collection to Firebase until that specific
+  // collection has genuinely received its first real snapshot. This is what
+  // stops a slow-loading collection from being saved as an empty default.
   function saveIfChanged(key, value) {
-    if (loading || value === null) return;
+    if (value === null) return;
+    if (!collectionReady.current[key]) return;
     const prev = lastFromServer.current[key];
     if (JSON.stringify(prev) === JSON.stringify(value)) return;
     lastFromServer.current[key] = value;
