@@ -840,6 +840,33 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
 
   const today = new Date().toISOString().slice(0, 10);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [coursesToStart, setCoursesToStart] = useState([]);
+  const [newCourseCode, setNewCourseCode] = useState("");
+
+  const toggleCourseToStart = (code) => setCoursesToStart(prev =>
+    prev.includes(code) ? prev.filter(c=>c!==code) : [...prev, code]
+  );
+
+  // Registers a never-before-taught course (adds it to the lecturer's assigned
+  // list and the department's master list, same as the Classes tab does) and
+  // immediately selects it to start — so a lecturer teaching a new course for
+  // the first time doesn't have to leave the Today Banner to do it in two steps.
+  const addAndSelectNewCourse = () => {
+    const code = newCourseCode.trim().toUpperCase();
+    if (!code) return showToast("Type a course code first", "error");
+    setCourses(prev => (prev||[]).includes(code) ? prev : [...(prev||[]), code]);
+    if (!isAdmin) {
+      const myAssigned = Array.isArray(currentLecturer.courses) ? currentLecturer.courses : [];
+      if (!myAssigned.includes(code)) {
+        const updated = { ...currentLecturer, courses: [...myAssigned, code] };
+        setLecturers(prev => prev.map(l => l.id===currentLecturer.id ? updated : l));
+        setCurrentLecturer(updated);
+      }
+    }
+    setCoursesToStart(prev => prev.includes(code) ? prev : [...prev, code]);
+    setNewCourseCode("");
+    showToast(`${code} added — select Start Selected to open it.`);
+  };
 
   const addCls = () => {
     const code = newClass.courseCode.trim().toUpperCase();
@@ -900,13 +927,17 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
   };
 
   const startTodaysClasses = () => {
-    if (myCourses.length===0) return showToast("No courses yet. Add a class session first.", "error");
+    if (myCourses.length===0) return showToast("No courses yet. Type a course code above and tap ＋.", "error");
+    // If the lecturer has exactly one course, there's no real ambiguity — proceed with it.
+    // Otherwise, require an explicit selection so this can never silently open every course at once.
+    const targets = myCourses.length === 1 ? myCourses : coursesToStart;
+    if (targets.length === 0) return showToast("Select at least one course to start below.", "error");
     const targetDate = selectedDate;
-    const alreadyStarted = myCourses.filter(code => (classes||[]).some(c=>c.courseCode===code&&c.date===targetDate&&c.confirmed));
-    if (alreadyStarted.length===myCourses.length) return showToast("Classes for this date are already open.", "error");
+    const alreadyStarted = targets.filter(code => (classes||[]).some(c=>c.courseCode===code&&c.date===targetDate&&c.confirmed));
+    if (alreadyStarted.length===targets.length) return showToast("Selected course(s) for this date are already open.", "error");
     const isPast = targetDate < today;
     const newSessions = [];
-    myCourses.forEach(code => {
+    targets.forEach(code => {
       const exists = (classes||[]).some(c=>c.courseCode===code&&c.date===targetDate);
       if (!exists) {
         const sess = { id: Date.now().toString()+code, courseCode:code, date:targetDate, topic:"", confirmed:true, lecturerId:currentLecturer.id, attendCode:genCode() };
@@ -917,7 +948,8 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
       }
     });
     if (newSessions.length>0) setClasses(prev=>[...prev,...newSessions]);
-    showToast(isPast ? "Past class sessions created — mark attendance manually." : "Classes are open — students can sign in!");
+    setCoursesToStart([]);
+    showToast(isPast ? "Past class session(s) created — mark attendance manually." : "Selected class(es) are open — students can sign in!");
   };
 
   const changeMyPin = () => {
@@ -1010,7 +1042,34 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
               {[5,10,15,20,30].map(m=><option key={m} value={m}>{m} min</option>)}
             </select>
           </div>
-          <Btn onClick={startTodaysClasses} label={selectedDate<today?"▶ Create Past Session":"▶ Start Classes"} primary small />
+          {myCourses.length > 1 && (
+            <div style={{display:"flex",flexWrap:"wrap",gap:4,justifyContent:"flex-end",maxWidth:220}}>
+              {myCourses.map(code=>{
+                const alreadyOpenToday = (classes||[]).some(c=>c.courseCode===code&&c.date===selectedDate&&c.confirmed);
+                return (
+                  <div key={code} onClick={()=>!alreadyOpenToday&&toggleCourseToStart(code)}
+                    style={{fontSize:11,padding:"4px 9px",borderRadius:99,cursor:alreadyOpenToday?"default":"pointer",fontWeight:700,
+                      opacity:alreadyOpenToday?0.5:1,
+                      background:coursesToStart.includes(code)?"#1d4ed8":"#eff6ff",
+                      color:coursesToStart.includes(code)?"#fff":"#1d4ed8",
+                      border:"1.5px solid #93c5fd"}}>
+                    {alreadyOpenToday?"✓ ":""}{code}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div style={{display:"flex",alignItems:"center",gap:4}}>
+            <input
+              placeholder="New course code"
+              value={newCourseCode}
+              onChange={e=>setNewCourseCode(e.target.value)}
+              style={{...S.select,padding:"4px 8px",fontSize:11,width:110}} />
+            <Btn onClick={addAndSelectNewCourse} label="＋" small />
+          </div>
+          {newCourseCode==="" && coursesToStart.length===0 && myCourses.length>1 &&
+            <div style={{fontSize:10,color:"#4b6cb7",textAlign:"right",maxWidth:220}}>Tap a course above, or type a new one teaching for the first time.</div>}
+          <Btn onClick={startTodaysClasses} label={selectedDate<today?"▶ Create Past Session":"▶ Start Selected"} primary small />
         </div>
       </div>
 
