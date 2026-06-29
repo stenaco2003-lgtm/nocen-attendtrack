@@ -26,14 +26,6 @@ async function fbSet(docPath, value) {
     await setDoc(doc(db, ...docPath.split("/")), { value });
   } catch(e) { console.error(e); }
 }
-// Live listener — keeps this tab continuously in sync with Firebase so it can
-// never save a stale snapshot over changes made elsewhere. Returns an unsubscribe function.
-function fbListen(docPath, onChange) {
-  const ref = doc(db, ...docPath.split("/"));
-  return onSnapshot(ref, (snap) => {
-    onChange(snap.exists() ? snap.data().value : null);
-  }, (err) => console.error("Listener error for", docPath, err));
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
@@ -71,22 +63,42 @@ export default function App() {
       studentInstruments: { set: setStudentInstruments, fallback: [] },
     };
 
-    let loadedCount = 0;
+    const loadedKeys = new Set();
     const totalCollections = Object.keys(collections).length;
     const unsubscribers = [];
 
+    const markLoaded = (key) => {
+      loadedKeys.add(key);
+      if (loadedKeys.size >= totalCollections) setLoading(false);
+    };
+
     Object.entries(collections).forEach(([key, { set, fallback }]) => {
-      const unsub = fbListen(`attendtrack/${key}`, (value) => {
-        const resolved = value ?? fallback;
-        lastFromServer.current[key] = resolved;
-        set(resolved);
-        loadedCount += 1;
-        if (loadedCount >= totalCollections) setLoading(false);
-      });
+      const ref = doc(db, ...(`attendtrack/${key}`).split("/"));
+      const unsub = onSnapshot(
+        ref,
+        (snap) => {
+          const resolved = (snap.exists() ? snap.data().value : null) ?? fallback;
+          lastFromServer.current[key] = resolved;
+          set(resolved);
+          markLoaded(key);
+        },
+        (err) => {
+          // A failed listener must not block the rest of the app from loading.
+          // Fall back to this collection's safe default and mark it loaded anyway.
+          console.error("Listener error for", key, err);
+          lastFromServer.current[key] = fallback;
+          set(fallback);
+          markLoaded(key);
+        }
+      );
       unsubscribers.push(unsub);
     });
 
-    return () => unsubscribers.forEach(unsub => unsub());
+    // Safety net: even if something unexpected stops a listener from ever
+    // calling back, never leave the app stuck on the loading screen forever.
+    const safetyTimer = setTimeout(() => setLoading(false), 8000);
+
+    return () => { unsubscribers.forEach(unsub => unsub()); clearTimeout(safetyTimer); };
   }, []);
 
   // Save helper — only writes to Firebase if the new value is actually different
@@ -641,6 +653,10 @@ function CountdownBadge({ expiresAt }) {
 function LecturerLogin({ lecturers, onLogin, setView }) {
   const [pin, setPin] = useState("");
   const attempt = () => {
+    if (!Array.isArray(lecturers)) {
+      window.alert("Still loading lecturer data — please wait a moment and try again.");
+      return;
+    }
     const found = lecturers.find(l => l.pin === pin.trim());
     onLogin(found || null);
     if (!found) setPin("");
