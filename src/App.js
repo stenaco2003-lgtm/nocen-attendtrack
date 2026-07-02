@@ -1055,9 +1055,8 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, saveLect
 
   const startTodaysClasses = () => {
     if (myCourses.length===0 && !newCourseCode.trim()) return showToast("No courses yet. Add a course code below.", "error");
-    // Single course — no need to show a picker, just start it directly
-    if (myCourses.length===1) return confirmStart(myCourses);
-    // Multiple courses — open the selection sheet
+    // Always open the selection sheet so the lecturer explicitly chooses
+    // which course to start — never fire automatically
     setShowCourseSheet(true);
   };
 
