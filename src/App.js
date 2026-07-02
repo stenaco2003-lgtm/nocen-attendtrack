@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import {
   doc, getDoc, setDoc, onSnapshot, collection,
-  getDocs, deleteDoc
+  getDocs, deleteDoc, writeBatch, query
 } from "firebase/firestore";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -14,43 +14,105 @@ const DEFAULT_LECTURERS = [
   { id: "admin", name: "Admin / HOD", pin: "1234", courses: "__all__", isAdmin: true }
 ];
 
-// Shared secret included in all lecturer/admin writes so Firestore rules
-// can distinguish them from student sessions. Students never have this token
-// so they physically cannot overwrite protected collections even if something
-// goes wrong in their browser tab.
-const LECTURER_AUTH = "nocen-music-lec-2026";
+// ── Document-per-record Firebase layer ───────────────────────────────────────
+// Each logical record (student, class session, lecturer, etc.) is stored as
+// its own Firestore document. This means two lecturers can write simultaneously
+// without ever conflicting — they're always writing to different documents.
+//
+// Collection structure:
+//   at_students/{studentNo}         — one doc per student
+//   at_classes/{classId}            — one doc per class session
+//   at_records/{classId}            — attendance list per class
+//   at_pending/{classId}            — pending list per class
+//   at_courses/_list                — single doc (small, rarely written)
+//   at_lecturers/{lecturerId}       — one doc per lecturer
+//   at_instruments/{instId}         — one doc per instrument
+//   at_loans/{loanId}               — one doc per loan
+//   at_studentInstruments/{id}      — one doc per student instrument
 
-// ── Firebase read/write ───────────────────────────────────────────────────────
-async function fbGet(docPath) {
-  try {
-    const snap = await getDoc(doc(db, ...docPath.split("/")));
-    return snap.exists() ? snap.data().value : null;
-  } catch { return null; }
+// Subscribe to an entire collection and return it as an object keyed by doc ID.
+// Calls onChange whenever any document in the collection changes.
+function subscribeCollection(colName, onChange, onReady) {
+  const colRef = collection(db, colName);
+  let ready = false;
+  return onSnapshot(colRef, (snap) => {
+    const result = {};
+    snap.forEach(d => { result[d.id] = d.data(); });
+    onChange(result);
+    if (!ready) { ready = true; onReady && onReady(); }
+  }, (err) => {
+    console.error("Listener error for", colName, err);
+    onChange({});
+    if (!ready) { ready = true; onReady && onReady(); }
+  });
 }
 
-// Lecturer/Admin write — includes auth token so Firestore rules allow it.
-async function fbSet(docPath, value) {
-  try {
-    await setDoc(doc(db, ...docPath.split("/")), { value, _auth: LECTURER_AUTH });
-  } catch(e) { console.error(e); }
+// Subscribe to a single document (used for courses list and pending).
+function subscribeDoc(colName, docId, onChange, onReady, fallback) {
+  const ref = doc(db, colName, docId);
+  let ready = false;
+  return onSnapshot(ref, (snap) => {
+    onChange(snap.exists() ? snap.data() : fallback);
+    if (!ready) { ready = true; onReady && onReady(); }
+  }, (err) => {
+    console.error("Listener error for", colName, docId, err);
+    onChange(fallback);
+    if (!ready) { ready = true; onReady && onReady(); }
+  });
 }
 
-// Student-only pending write — directly updates just the pending list for one
-// specific class using arrayUnion, so it's a safe additive merge rather than
-// a full document overwrite. Students can only call this, never fbSet.
+// Write a single record document. Each call only touches one document
+// so concurrent writes from different lecturers never conflict.
+async function writeDoc(colName, docId, data) {
+  try {
+    await setDoc(doc(db, colName, docId), data);
+  } catch(e) { console.error("writeDoc error", colName, docId, e); }
+}
+
+// Delete a single record document.
+async function deleteRec(colName, docId) {
+  try {
+    await deleteDoc(doc(db, colName, docId));
+  } catch(e) { console.error("deleteRec error", colName, docId, e); }
+}
+
+// Student attendance submission — safe additive write to one pending document.
+// Only touches at_pending/{classId}, never any other collection.
 async function fbAddToPending(classId, studentNo) {
   try {
-    const ref = doc(db, "attendtrack", "pending");
-    // Read current pending, add student to this class's list, write back
+    const ref = doc(db, "at_pending", classId);
     const snap = await getDoc(ref);
-    const current = snap.exists() ? (snap.data().value || {}) : {};
-    const list = current[classId] || [];
-    if (list.includes(studentNo)) return; // already pending
-    const updated = { ...current, [classId]: [...list, studentNo] };
-    // Student write — no _auth token, matches the pending-only rule
-    await setDoc(ref, { value: updated });
-  } catch(e) { console.error(e); }
+    const list = snap.exists() ? (snap.data().list || []) : [];
+    if (list.includes(studentNo)) return;
+    await setDoc(ref, { list: [...list, studentNo] });
+  } catch(e) { console.error("fbAddToPending error", e); }
 }
+
+// ── Shape converters — translate collection snapshots to app state format ────
+// Students: { studentNo: studentObject }
+const studentsFromSnap  = (snap) => {
+  const out = {};
+  Object.values(snap).forEach(s => { if (s.studentNo) out[s.studentNo] = s; });
+  return out;
+};
+// Classes: array sorted by date desc
+const classesFromSnap   = (snap) => Object.values(snap).sort((a,b) => b.date?.localeCompare(a.date||"")||0);
+// Records: { classId: [studentNo, ...] }
+const recordsFromSnap   = (snap) => { const out={}; Object.entries(snap).forEach(([id,d])=>{ out[id]=d.list||[]; }); return out; };
+// Pending: { classId: [studentNo, ...] }
+const pendingFromSnap   = (snap) => { const out={}; Object.entries(snap).forEach(([id,d])=>{ out[id]=d.list||[]; }); return out; };
+// Lecturers: array
+const lecturersFromSnap = (snap) => {
+  const arr = Object.values(snap);
+  if (arr.length === 0) return DEFAULT_LECTURERS;
+  return arr;
+};
+// Instruments: array
+const instrumentsFromSnap      = (snap) => Object.values(snap);
+// Loans: array
+const loansFromSnap            = (snap) => Object.values(snap);
+// Student instruments: array
+const studentInstFromSnap      = (snap) => Object.values(snap);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
@@ -65,97 +127,33 @@ export default function App() {
   const [currentLecturer, setCurrentLecturer] = useState(null);
   const [toast, setToast]           = useState(null);
   const [loading, setLoading]       = useState(true);
-  const [instruments, setInstruments] = useState(null);
-  const [loans, setLoans]             = useState(null);
+  const [instruments, setInstruments]           = useState(null);
+  const [loans, setLoans]                       = useState(null);
   const [studentInstruments, setStudentInstruments] = useState(null);
 
-  // Tracks the last value RECEIVED from Firebase for each collection, so we can
-  // tell a genuine local edit apart from an update echoed back by our own listener.
-  const lastFromServer = useRef({});
-  const collectionReady = useRef({});
   const currentLecturerRef = useRef(null);
-
-  // Keep ref in sync with state so saveIfChanged always has the current value
-  // without needing to be in useEffect dependency arrays
   useEffect(() => { currentLecturerRef.current = currentLecturer; }, [currentLecturer]);
 
+  // ── Live listeners — one per Firestore collection ─────────────────────────
   useEffect(() => {
-    const collections = {
-      students: { set: setStudents, fallback: {} },
-      classes: { set: setClasses, fallback: [] },
-      records: { set: setRecords, fallback: {} },
-      pending: { set: setPending, fallback: {} },
-      courses: { set: setCourses, fallback: [] },
-      lecturers: { set: setLecturers, fallback: DEFAULT_LECTURERS },
-      instruments: { set: setInstruments, fallback: [] },
-      loans: { set: setLoans, fallback: [] },
-      studentInstruments: { set: setStudentInstruments, fallback: [] },
-    };
+    const loaded = new Set();
+    const unsubs = [];
+    const mark = (key) => { loaded.add(key); if (loaded.size >= 9) setLoading(false); };
 
-    const loadedKeys = new Set();
-    const totalCollections = Object.keys(collections).length;
-    const unsubscribers = [];
+    unsubs.push(subscribeCollection("at_students",           s => setStudents(studentsFromSnap(s)),            () => mark("students")));
+    unsubs.push(subscribeCollection("at_classes",            s => setClasses(classesFromSnap(s)),              () => mark("classes")));
+    unsubs.push(subscribeCollection("at_records",            s => setRecords(recordsFromSnap(s)),              () => mark("records")));
+    unsubs.push(subscribeCollection("at_pending",            s => setPending(pendingFromSnap(s)),              () => mark("pending")));
+    unsubs.push(subscribeCollection("at_lecturers",          s => setLecturers(lecturersFromSnap(s)),          () => mark("lecturers")));
+    unsubs.push(subscribeCollection("at_instruments",        s => setInstruments(instrumentsFromSnap(s)),      () => mark("instruments")));
+    unsubs.push(subscribeCollection("at_loans",              s => setLoans(loansFromSnap(s)),                  () => mark("loans")));
+    unsubs.push(subscribeCollection("at_studentInstruments", s => setStudentInstruments(studentInstFromSnap(s)), () => mark("studentInstruments")));
+    unsubs.push(subscribeDoc("at_courses", "_list",          d => setCourses(d.list || []),                   () => mark("courses"), { list: [] }));
 
-    const markLoaded = (key) => {
-      loadedKeys.add(key);
-      if (loadedKeys.size >= totalCollections) setLoading(false);
-    };
-
-    Object.entries(collections).forEach(([key, { set, fallback }]) => {
-      const ref = doc(db, ...(`attendtrack/${key}`).split("/"));
-      const unsub = onSnapshot(
-        ref,
-        (snap) => {
-          const resolved = (snap.exists() ? snap.data().value : null) ?? fallback;
-          lastFromServer.current[key] = resolved;
-          collectionReady.current[key] = true;
-          set(resolved);
-          markLoaded(key);
-        },
-        (err) => {
-          // A failed listener must not block the REST of the app from loading,
-          // but it must also NOT be treated as ready-to-save — we genuinely do
-          // not know the real state of this collection, so saving stays locked.
-          console.error("Listener error for", key, err);
-          set(fallback);
-          markLoaded(key);
-        }
-      );
-      unsubscribers.push(unsub);
-    });
-
-    // Display-only safety net: if something stops a listener from ever calling
-    // back, stop showing the loading spinner so the rest of the app is usable.
-    // This must NEVER unlock saving for a collection that hasn't truly loaded —
-    // collectionReady is intentionally untouched here.
-    const spinnerTimer = setTimeout(() => setLoading(false), 8000);
-
-    return () => { unsubscribers.forEach(unsub => unsub()); clearTimeout(spinnerTimer); };
+    const t = setTimeout(() => setLoading(false), 8000);
+    return () => { unsubs.forEach(u => u()); clearTimeout(t); };
   }, []);
 
-  // Save helper — refuses to write a collection to Firebase until that specific
-  // collection has genuinely received its first real snapshot, AND only when a
-  // lecturer or admin is logged in. Student sessions NEVER trigger saves here —
-  // their only allowed write is fbAddToPending for attendance submissions.
-  function saveIfChanged(key, value) {
-    if (value === null) return;
-    if (!collectionReady.current[key]) return;
-    if (!currentLecturerRef.current) return; // student session — no writes allowed
-    const prev = lastFromServer.current[key];
-    if (JSON.stringify(prev) === JSON.stringify(value)) return;
-    lastFromServer.current[key] = value;
-    fbSet(`attendtrack/${key}`, value);
-  }
-
-  useEffect(() => { saveIfChanged("students", students); }, [students]);
-  useEffect(() => { saveIfChanged("classes", classes); }, [classes]);
-  useEffect(() => { saveIfChanged("records", records); }, [records]);
-  useEffect(() => { saveIfChanged("pending", pending); }, [pending]);
-  useEffect(() => { saveIfChanged("courses", courses); }, [courses]);
-  useEffect(() => { saveIfChanged("lecturers", lecturers); }, [lecturers]);
-  useEffect(() => { saveIfChanged("instruments", instruments); }, [instruments]);
-  useEffect(() => { saveIfChanged("loans", loans); }, [loans]);
-  useEffect(() => { saveIfChanged("studentInstruments", studentInstruments); }, [studentInstruments]);
 
   // Automatic daily safety snapshot — separate from the manual download backup.
   // Runs at most once per calendar day, only once every collection has genuinely
@@ -182,15 +180,87 @@ export default function App() {
             instruments: instruments || [], loans: loans || [], studentInstruments: studentInstruments || []
           }
         };
-        await fbSet(`attendtrack_autobackups/${today}`, snapshot);
-        await fbSet("attendtrack_autobackups/_last", today);
-        // Prune anything older than 7 days so this never grows unbounded
+        // Store in a simple top-level backup doc, not the live collection paths
+        await writeDoc("at_autobackups", today, snapshot);
+        await writeDoc("at_autobackups", "_last", { date: today });
+        // Prune old backup
         const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7);
-        const oldDate = cutoff.toISOString().slice(0, 10);
-        await deleteDoc(doc(db, "attendtrack_autobackups", oldDate)).catch(() => {});
+        await deleteRec("at_autobackups", cutoff.toISOString().slice(0, 10)).catch(() => {});
       } catch (e) { console.error("Auto-backup failed:", e); }
     })();
   }, [currentLecturer, students, classes, records, pending, courses, lecturers, instruments, loans, studentInstruments]);
+
+  // ── Write-through helpers ─────────────────────────────────────────────────
+  // Every mutation updates local state (for instant UI) AND writes the specific
+  // changed document to Firestore. Only lecturer/admin sessions call these.
+
+  const saveStudent = (student) => {
+    setStudents(prev => ({ ...prev, [student.studentNo]: student }));
+    writeDoc("at_students", student.studentNo, student);
+  };
+
+  const saveClass = (cls) => {
+    setClasses(prev => { const existing = prev.find(c=>c.id===cls.id); return existing ? prev.map(c=>c.id===cls.id?cls:c) : [...prev, cls]; });
+    writeDoc("at_classes", cls.id, cls);
+  };
+
+  const deleteClass = (classId) => {
+    setClasses(prev => prev.filter(c => c.id !== classId));
+    setRecords(prev => { const n={...prev}; delete n[classId]; return n; });
+    setPending(prev => { const n={...prev}; delete n[classId]; return n; });
+    deleteRec("at_classes", classId);
+    deleteRec("at_records", classId);
+    deleteRec("at_pending", classId);
+  };
+
+  const saveRecord = (classId, list) => {
+    setRecords(prev => ({ ...prev, [classId]: list }));
+    writeDoc("at_records", classId, { list });
+  };
+
+  const savePendingForClass = (classId, list) => {
+    setPending(prev => ({ ...prev, [classId]: list }));
+    if (list.length === 0) {
+      deleteRec("at_pending", classId);
+    } else {
+      writeDoc("at_pending", classId, { list });
+    }
+  };
+
+  const saveCourses = (list) => {
+    setCourses(list);
+    writeDoc("at_courses", "_list", { list });
+  };
+
+  const saveLecturer = (lec) => {
+    setLecturers(prev => { const existing = prev.find(l=>l.id===lec.id); return existing ? prev.map(l=>l.id===lec.id?lec:l) : [...prev, lec]; });
+    writeDoc("at_lecturers", lec.id, lec);
+  };
+
+  const deleteLecturer = (id) => {
+    setLecturers(prev => prev.filter(l => l.id !== id));
+    deleteRec("at_lecturers", id);
+  };
+
+  const saveInstrument = (inst) => {
+    setInstruments(prev => { const existing = (prev||[]).find(i=>i.id===inst.id); return existing ? (prev||[]).map(i=>i.id===inst.id?inst:i) : [...(prev||[]), inst]; });
+    writeDoc("at_instruments", inst.id, inst);
+  };
+
+  const deleteInstrument = (id) => {
+    setInstruments(prev => (prev||[]).filter(i => i.id !== id));
+    deleteRec("at_instruments", id);
+  };
+
+  const saveLoan = (loan) => {
+    setLoans(prev => { const existing = (prev||[]).find(l=>l.id===loan.id); return existing ? (prev||[]).map(l=>l.id===loan.id?loan:l) : [...(prev||[]), loan]; });
+    writeDoc("at_loans", loan.id, loan);
+  };
+
+  const saveStudentInstrument = (inst) => {
+    setStudentInstruments(prev => { const existing = (prev||[]).find(i=>i.id===inst.id); return existing ? (prev||[]).map(i=>i.id===inst.id?inst:i) : [...(prev||[]), inst]; });
+    writeDoc("at_studentInstruments", inst.id, inst);
+  };
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -228,32 +298,35 @@ export default function App() {
         </div>
       )}
       {view === "splash"   && <Splash setView={setView} />}
-      {view === "register" && <Register students={students} setStudents={setStudents} setView={setView} showToast={showToast} setCurrentStudent={setCurrentStudent} />}
-      {view === "sign-in"  && <SignInStudent students={students} setStudents={setStudents} setView={setView} showToast={showToast} setCurrentStudent={setCurrentStudent} />}
+      {view === "register" && <Register students={students} saveStudent={saveStudent} setView={setView} showToast={showToast} setCurrentStudent={setCurrentStudent} />}
+      {view === "sign-in"  && <SignInStudent students={students} saveStudent={saveStudent} setView={setView} showToast={showToast} setCurrentStudent={setCurrentStudent} />}
       {view === "student"  && currentStudent && (
         <StudentDash student={currentStudent} classes={classes} confirmedClasses={confirmedClasses}
-          records={records} pending={pending} setPending={setPending} courses={courses}
+          records={records} pending={pending} courses={courses}
           studentStats={studentStats} setView={setView} showToast={showToast} pct={pct} pctColor={pctColor}
-          studentInstruments={studentInstruments} setStudentInstruments={setStudentInstruments}
-          instruments={instruments} loans={loans} setLoans={setLoans} />
+          studentInstruments={studentInstruments} saveStudentInstrument={saveStudentInstrument}
+          instruments={instruments} loans={loans} saveLoan={saveLoan} />
       )}
       {view === "inventory" && (
         <InventoryDash
-          instruments={instruments} setInstruments={setInstruments}
-          loans={loans} setLoans={setLoans}
-          studentInstruments={studentInstruments} setStudentInstruments={setStudentInstruments}
+          instruments={instruments} saveInstrument={saveInstrument} deleteInstrument={deleteInstrument}
+          loans={loans} saveLoan={saveLoan}
+          studentInstruments={studentInstruments} saveStudentInstrument={saveStudentInstrument}
           students={students} lecturers={lecturers}
           currentLecturer={currentLecturer} setCurrentLecturer={setCurrentLecturer}
           setView={setView} showToast={showToast} isAdmin={currentLecturer?.isAdmin||false} />
       )}
       {view === "lecturer" && (
         <LecturerDash currentLecturer={currentLecturer} setCurrentLecturer={setCurrentLecturer}
-          lecturers={lecturers} setLecturers={setLecturers} students={students} setStudents={setStudents}
-          classes={classes} setClasses={setClasses} records={records} setRecords={setRecords}
-          pending={pending} setPending={setPending} courses={courses} setCourses={setCourses}
-          instruments={instruments} setInstruments={setInstruments}
-          loans={loans} setLoans={setLoans}
-          studentInstruments={studentInstruments} setStudentInstruments={setStudentInstruments}
+          lecturers={lecturers} saveLecturer={saveLecturer} deleteLecturer={deleteLecturer}
+          students={students} saveStudent={saveStudent}
+          classes={classes} saveClass={saveClass} deleteClass={deleteClass}
+          records={records} saveRecord={saveRecord}
+          pending={pending} savePendingForClass={savePendingForClass}
+          courses={courses} saveCourses={saveCourses}
+          instruments={instruments} saveInstrument={saveInstrument} deleteInstrument={deleteInstrument}
+          loans={loans} saveLoan={saveLoan}
+          studentInstruments={studentInstruments} saveStudentInstrument={saveStudentInstrument}
           setView={setView} showToast={showToast} confirmedClasses={confirmedClasses}
           studentStats={studentStats} pct={pct} pctColor={pctColor}
           myCoursesForLecturer={myCoursesForLecturer} />
@@ -361,7 +434,7 @@ function Splash({ setView }) {
 }
 
 // ── Register ──────────────────────────────────────────────────────────────────
-function Register({ students, setStudents, setView, showToast, setCurrentStudent }) {
+function Register({ students, saveStudent, setView, showToast, setCurrentStudent }) {
   const [name, setName]       = useState("");
   const [sno, setSno]         = useState("");
   const [pwd, setPwd]         = useState("");
@@ -374,7 +447,7 @@ function Register({ students, setStudents, setView, showToast, setCurrentStudent
     if (pwd !== pwd2) return showToast("Passwords do not match", "error");
     if (students[sno.trim()]) return showToast("Student number already registered", "error");
     const student = { name: name.trim(), studentNo: sno.trim(), password: pwd, department: dept };
-    setStudents(prev => ({ ...prev, [sno.trim()]: student }));
+    saveStudent(student);
     setCurrentStudent(student);
     showToast("Registration successful! Welcome, " + name.split(" ")[0]);
     setView("student");
@@ -413,7 +486,7 @@ function Register({ students, setStudents, setView, showToast, setCurrentStudent
 }
 
 // ── Sign In Student ───────────────────────────────────────────────────────────
-function SignInStudent({ students, setStudents, setView, showToast, setCurrentStudent }) {
+function SignInStudent({ students, saveStudent, setView, showToast, setCurrentStudent }) {
   const [sno, setSno]       = useState("");
   const [pwd, setPwd]       = useState("");
   const [newPwd, setNewPwd] = useState("");
@@ -447,7 +520,7 @@ function SignInStudent({ students, setStudents, setView, showToast, setCurrentSt
     if (newPwd.length < 4) return showToast("Password must be at least 4 characters", "error");
     if (newPwd !== newPwd2) return showToast("Passwords do not match", "error");
     const updated = { ...foundStudent, password: newPwd };
-    setStudents(prev => ({ ...prev, [foundStudent.studentNo]: updated }));
+    saveStudent(updated);
     setCurrentStudent(updated);
     showToast("Password set! Welcome back, " + foundStudent.name.split(" ")[0] + "!");
     setView("student");
@@ -499,7 +572,7 @@ function StudentCountdown({ expiresAt }) {
 }
 
 // ── Student Dashboard ─────────────────────────────────────────────────────────
-function StudentDash({ student, classes, confirmedClasses, records, pending, setPending, courses, studentStats, setView, showToast, pct, pctColor, studentInstruments, setStudentInstruments, instruments, loans, setLoans }) {
+function StudentDash({ student, classes, confirmedClasses, records, pending, courses, studentStats, setView, showToast, pct, pctColor, studentInstruments, saveStudentInstrument, instruments, loans, saveLoan }) {
   const [tab, setTab] = useState("attend");
   const [codeEntry, setCodeEntry] = useState({});
   const stats = studentStats(student.studentNo, courses);
@@ -617,7 +690,7 @@ function StudentDash({ student, classes, confirmedClasses, records, pending, set
               const myPending=(loans||[]).find(l=>l.instId===inst.id&&l.borrowerId===student.studentNo&&l.status==="pending");
               return (
                 <StudentStoreCard key={inst.id} inst={inst} available={available} condColor={condColor}
-                  myLoan={myLoan} myPending={myPending} student={student} setLoans={setLoans} showToast={showToast} />
+                  myLoan={myLoan} myPending={myPending} student={student} saveLoan={saveLoan} showToast={showToast} />
               );
             })
           }
@@ -657,7 +730,7 @@ function StudentDash({ student, classes, confirmedClasses, records, pending, set
         <StudentInstrumentTab
           student={student}
           studentInstruments={studentInstruments}
-          setStudentInstruments={setStudentInstruments}
+          saveStudentInstrument={saveStudentInstrument}
           showToast={showToast}
         />
       )}
@@ -666,7 +739,7 @@ function StudentDash({ student, classes, confirmedClasses, records, pending, set
 }
 
 // ── Student Store Card (isolated component so useState is valid) ─────────────
-function StudentStoreCard({ inst, available, condColor, myLoan, myPending, student, setLoans, showToast }) {
+function StudentStoreCard({ inst, available, condColor, myLoan, myPending, student, saveLoan, showToast }) {
   const [showReq, setShowReq] = useState(false);
   const [reqNote, setReqNote] = useState("");
   return (
@@ -695,7 +768,7 @@ function StudentStoreCard({ inst, available, condColor, myLoan, myPending, stude
                 <Btn onClick={()=>{
                   if(!reqNote.trim())return showToast("Please describe your purpose","error");
                   const loan={id:Date.now().toString(),instId:inst.id,borrowerName:student.name,borrowerId:student.studentNo,borrowerType:"student",purpose:reqNote.trim(),status:"pending",requestedAt:new Date().toISOString(),damageReports:[]};
-                  setLoans(prev=>[...(prev||[]),loan]);
+                  saveLoan(loan);
                   setReqNote(""); setShowReq(false);
                   showToast("Request submitted — awaiting lecturer approval.");
                 }} label="Submit Request" primary small />
@@ -770,7 +843,7 @@ function BackupReminderBanner() {
 }
 
 // ── Auto-Backup Restore (emergency fallback to last 7 daily snapshots) ───────
-function AutoBackupRestore({ setStudents, setClasses, setRecords, setPending, setCourses, setLecturers, setInstruments, setLoans, setStudentInstruments, showToast }) {
+function AutoBackupRestore({ saveStudent, saveClass, saveRecord, savePendingForClass, saveCourses, saveLecturer, saveInstrument, saveLoan, saveStudentInstrument, showToast }) {
   const [open, setOpen] = useState(false);
   const [dates, setDates] = useState(null);
   const [loadingDates, setLoadingDates] = useState(false);
@@ -791,15 +864,15 @@ function AutoBackupRestore({ setStudents, setClasses, setRecords, setPending, se
   const restoreFrom = (snap) => {
     const d = snap.data;
     if (!d) return showToast("That snapshot looks invalid.", "error");
-    if (d.students) setStudents(d.students);
-    if (d.classes) setClasses(d.classes);
-    if (d.records) setRecords(d.records);
-    if (d.pending) setPending(d.pending);
-    if (d.courses) setCourses(d.courses);
-    if (d.lecturers) setLecturers(d.lecturers);
-    if (d.instruments) setInstruments(d.instruments);
-    if (d.loans) setLoans(d.loans);
-    if (d.studentInstruments) setStudentInstruments(d.studentInstruments);
+    if (d.students) Object.values(d.students).forEach(s=>saveStudent(s));
+    if (d.classes) d.classes.forEach(c=>saveClass(c));
+    if (d.records) Object.entries(d.records).forEach(([id,list])=>saveRecord(id,list));
+    if (d.pending) Object.entries(d.pending).forEach(([id,list])=>savePendingForClass(id,list));
+    if (d.courses) saveCourses(d.courses);
+    if (d.lecturers) d.lecturers.forEach(l=>saveLecturer(l));
+    if (d.instruments) d.instruments.forEach(i=>saveInstrument(i));
+    if (d.loans) d.loans.forEach(l=>saveLoan(l));
+    if (d.studentInstruments) d.studentInstruments.forEach(i=>saveStudentInstrument(i));
     showToast("Restored from automatic backup.");
     setOpen(false);
   };
@@ -833,7 +906,7 @@ function AutoBackupRestore({ setStudents, setClasses, setRecords, setPending, se
   );
 }
 
-function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLecturers, students, setStudents, classes, setClasses, records, setRecords, pending, setPending, courses, setCourses, instruments, setInstruments, loans, setLoans, studentInstruments, setStudentInstruments, setView, showToast, confirmedClasses, studentStats, pct, pctColor, myCoursesForLecturer }) {
+function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, saveLecturer, deleteLecturer, students, saveStudent, classes, saveClass, deleteClass, records, saveRecord, pending, savePendingForClass, courses, saveCourses, instruments, saveInstrument, deleteInstrument, loans, saveLoan, studentInstruments, saveStudentInstrument, setView, showToast, confirmedClasses, studentStats, pct, pctColor, myCoursesForLecturer }) {
 
   const handleLogin = (lec) => {
     if (!lec) { showToast("Incorrect PIN", "error"); return; }
@@ -879,12 +952,12 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
   const addAndSelectNewCourse = () => {
     const code = newCourseCode.trim().toUpperCase();
     if (!code) return showToast("Type a course code first", "error");
-    setCourses(prev => (prev||[]).includes(code) ? prev : [...(prev||[]), code]);
+    saveCourses((courses||[]).includes(code) ? (courses||[]) : [...(courses||[]), code]);
     if (!isAdmin) {
       const myAssigned = Array.isArray(currentLecturer.courses) ? currentLecturer.courses : [];
       if (!myAssigned.includes(code)) {
         const updated = { ...currentLecturer, courses: [...myAssigned, code] };
-        setLecturers(prev => prev.map(l => l.id===currentLecturer.id ? updated : l));
+        saveLecturer(updated);
         setCurrentLecturer(updated);
       }
     }
@@ -896,58 +969,53 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
   const addCls = () => {
     const code = newClass.courseCode.trim().toUpperCase();
     if (!newClass.date || !code) return showToast("Fill course code and date", "error");
-    setCourses(prev => prev.includes(code) ? prev : [...prev, code]);
+    saveCourses((courses||[]).includes(code) ? courses : [...(courses||[]), code]);
     if (!isAdmin) {
       const myAssigned = Array.isArray(currentLecturer.courses) ? currentLecturer.courses : [];
       if (!myAssigned.includes(code)) {
         const updated = { ...currentLecturer, courses: [...myAssigned, code] };
-        setLecturers(prev => prev.map(l => l.id===currentLecturer.id ? updated : l));
+        saveLecturer(updated);
         setCurrentLecturer(updated);
       }
     }
     const cls = { id: Date.now().toString(), courseCode: code, date: newClass.date, topic: newClass.topic, confirmed: false, lecturerId: currentLecturer.id };
-    setClasses(prev => [...prev, cls]);
+    saveClass(cls);
     showToast("Class session created. Confirm it to open for students.");
     setNewClass({ courseCode:"", date:"", topic:"" });
   };
 
   const confirmClass = (id) => {
     const code = genCode();
-    setClasses(prev => prev.map(c => c.id===id ? { ...c, confirmed:true, attendCode:code, expiresAt: Date.now()+signDuration*60*1000 } : c));
+    const cls = (classes||[]).find(c=>c.id===id);
+    if (cls) saveClass({ ...cls, confirmed:true, attendCode:code, expiresAt: Date.now()+signDuration*60*1000 });
     showToast("Class confirmed! Code: " + code + " (" + signDuration + " min)");
   };
 
-  const deleteClass = (id) => {
-    setClasses(prev => prev.filter(c => c.id!==id));
-    setRecords(prev => { const n={...prev}; delete n[id]; return n; });
-    setPending(prev => { const n={...prev}; delete n[id]; return n; });
+  const handleDeleteClass = (id) => {
+    deleteClass(id);
     showToast("Class session removed.");
   };
 
   const toggleManualAttendance = (classId, studentNo) => {
-    setRecords(prev => {
-      const list = prev[classId] || [];
-      const updated = list.includes(studentNo)
-        ? list.filter(s => s !== studentNo)
-        : [...list, studentNo];
-      return { ...prev, [classId]: updated };
-    });
+    const list = records[classId] || [];
+    const updated = list.includes(studentNo) ? list.filter(s=>s!==studentNo) : [...list, studentNo];
+    saveRecord(classId, updated);
   };
 
   const saveManualAttendance = (classId) => {
-    setPending(prev => { const n={...prev}; delete n[classId]; return n; });
+    savePendingForClass(classId, []);
     setManualClassId(null);
     showToast("Attendance saved successfully!");
   };
 
   const approveStudent = (classId, studentNo) => {
-    setRecords(prev => ({ ...prev, [classId]: [...(prev[classId]||[]), studentNo] }));
-    setPending(prev => ({ ...prev, [classId]: (prev[classId]||[]).filter(s=>s!==studentNo) }));
+    saveRecord(classId, [...(records[classId]||[]), studentNo]);
+    savePendingForClass(classId, (pending[classId]||[]).filter(s=>s!==studentNo));
     showToast("Attendance recorded.");
   };
 
   const rejectStudent = (classId, studentNo) => {
-    setPending(prev => ({ ...prev, [classId]: (prev[classId]||[]).filter(s=>s!==studentNo) }));
+    savePendingForClass(classId, (pending[classId]||[]).filter(s=>s!==studentNo));
     showToast("Attendance request rejected.");
   };
 
@@ -973,10 +1041,11 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
         if (!isPast) sess.expiresAt = Date.now()+signDuration*60*1000;
         newSessions.push(sess);
       } else {
-        setClasses(prev => prev.map(c => c.courseCode===code&&c.date===targetDate ? { ...c, confirmed:true, attendCode:c.attendCode||genCode(), ...(!isPast&&!c.expiresAt?{expiresAt:Date.now()+signDuration*60*1000}:{}) } : c));
+        const existing = (classes||[]).find(c=>c.courseCode===code&&c.date===targetDate);
+        if (existing) saveClass({ ...existing, confirmed:true, attendCode:existing.attendCode||genCode(), ...(!isPast&&!existing.expiresAt?{expiresAt:Date.now()+signDuration*60*1000}:{}) });
       }
     });
-    if (newSessions.length>0) setClasses(prev=>[...prev,...newSessions]);
+    newSessions.forEach(s => saveClass(s));
     setCoursesToStart([]);
     setShowCourseSheet(false);
     showToast(isPast ? "Past session(s) created — mark attendance manually." : "Class(es) open — students can sign in!");
@@ -989,7 +1058,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
     if (newPin===curPin) return showToast("New PIN must differ from current","error");
     if (lecturers.find(l=>l.id!==currentLecturer.id&&l.pin===newPin)) return showToast("That PIN is already in use","error");
     const updated={...currentLecturer,pin:newPin};
-    setLecturers(prev=>prev.map(l=>l.id===currentLecturer.id?updated:l));
+    saveLecturer(updated);
     setCurrentLecturer(updated);
     setCurPin(""); setNewPin(""); setConfPin("");
     showToast("PIN changed successfully!");
@@ -998,7 +1067,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
   const adminResetPin = () => {
     if (!resetNewPin.trim()) return showToast("New PIN cannot be empty","error");
     if (lecturers.find(l=>l.id!==resetTarget&&l.pin===resetNewPin)) return showToast("That PIN is already in use","error");
-    setLecturers(prev=>prev.map(l=>l.id===resetTarget?{...l,pin:resetNewPin}:l));
+    const target=(lecturers||[]).find(l=>l.id===resetTarget); if(target) saveLecturer({...target,pin:resetNewPin});
     setResetTarget(null); setResetNewPin("");
     showToast("PIN reset successfully.");
   };
@@ -1007,14 +1076,14 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
     if (!nlName.trim()||!nlPin.trim()) return showToast("Name and PIN are required","error");
     if (lecturers.find(l=>l.pin===nlPin.trim())) return showToast("That PIN is already in use","error");
     const lec={id:Date.now().toString(),name:nlName.trim(),pin:nlPin.trim(),courses:nlCourses,isAdmin:false,instrumentInCharge:nlInCharge};
-    setLecturers(prev=>[...prev,lec]);
+    saveLecturer(lec);
     setNlName(""); setNlPin(""); setNlCourses([]); setNlInCharge(false);
     showToast("Lecturer added successfully.");
   };
 
   const removeLecturer = (id) => {
     if (id==="admin") return showToast("Cannot remove the admin account","error");
-    setLecturers(prev=>prev.filter(l=>l.id!==id));
+    deleteLecturer(id);
     showToast("Lecturer removed.");
   };
 
@@ -1204,7 +1273,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
               <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
                 {!cls.confirmed&&<Btn onClick={()=>confirmClass(cls.id)} label="Confirm" primary small />}
                 {cls.confirmed&&<Btn onClick={()=>setManualClassId(manualClassId===cls.id?null:cls.id)} label="✏ Mark" small />}
-                <Btn onClick={()=>deleteClass(cls.id)} label="🗑" small danger />
+                <Btn onClick={()=>handleDeleteClass(cls.id)} label="🗑" small danger />
               </div>
             </div>
             {manualClassId===cls.id && (
@@ -1290,7 +1359,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
               })
             }
           </>}
-          {selectedStudent&&<StudentModal student={selectedStudent} studentStats={studentStats} courses={myCourses} pct={pct} pctColor={pctColor} onClose={()=>setSelectedStudent(null)} onMoveDept={(s)=>{setStudents(prev=>({...prev,[s.studentNo]:{...s,department:s.department==="borrowed"?"music":"borrowed"}}));showToast(s.name+" moved successfully.");}}/>}
+          {selectedStudent&&<StudentModal student={selectedStudent} studentStats={studentStats} courses={myCourses} pct={pct} pctColor={pctColor} onClose={()=>setSelectedStudent(null)} onMoveDept={(s)=>{saveStudent({...s,department:s.department==="borrowed"?"music":"borrowed"});showToast(s.name+" moved successfully.");}}/>}
         </div>
       )}
 
@@ -1333,7 +1402,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
                   {!lec.isAdmin&&<>
                     <Btn onClick={()=>{
-                      setLecturers(prev=>prev.map(l=>l.id===lec.id?{...l,instrumentInCharge:!l.instrumentInCharge}:l));
+                      saveLecturer({...lec,instrumentInCharge:!lec.instrumentInCharge});
                       showToast(lec.instrumentInCharge?"Instrument In Charge role removed.":"Instrument In Charge role assigned.");
                     }} label={lec.instrumentInCharge?"🎸 In Charge":"🎸 Set In Charge"} small />
                     <Btn onClick={()=>{setResetTarget(lec.id===resetTarget?null:lec.id);setResetNewPin("");}} label="Reset PIN" small />
@@ -1412,15 +1481,15 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                         const backup = JSON.parse(ev.target.result);
                         if(!backup.data) return showToast("Invalid backup file","error");
                         const d = backup.data;
-                        if(d.students)  setStudents(d.students);
-                        if(d.classes)   setClasses(d.classes);
-                        if(d.records)   setRecords(d.records);
-                        if(d.pending)   setPending(d.pending);
-                        if(d.courses)   setCourses(d.courses);
-                        if(d.lecturers) setLecturers(d.lecturers);
-                        if(d.instruments) setInstruments(d.instruments);
-                        if(d.loans) setLoans(d.loans);
-                        if(d.studentInstruments) setStudentInstruments(d.studentInstruments);
+                        if(d.students) Object.values(d.students).forEach(s=>saveStudent(s));
+                        if(d.classes) d.classes.forEach(c=>saveClass(c));
+                        if(d.records) Object.entries(d.records).forEach(([id,list])=>saveRecord(id,list));
+                        if(d.pending) Object.entries(d.pending).forEach(([id,list])=>savePendingForClass(id,list));
+                        if(d.courses) saveCourses(d.courses);
+                        if(d.lecturers) d.lecturers.forEach(l=>saveLecturer(l));
+                        if(d.instruments && d.instruments.forEach) d.instruments.forEach(i=>saveInstrument(i));
+                        if(d.loans && d.loans.forEach) d.loans.forEach(l=>saveLoan(l));
+                        if(d.studentInstruments && d.studentInstruments.forEach) d.studentInstruments.forEach(i=>saveStudentInstrument(i));
                         showToast("Data restored from backup!");
                       } catch { showToast("Could not read backup file","error"); }
                     };
@@ -1429,9 +1498,9 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                 </label>
               </div>
               <AutoBackupRestore
-                setStudents={setStudents} setClasses={setClasses} setRecords={setRecords}
-                setPending={setPending} setCourses={setCourses} setLecturers={setLecturers}
-                setInstruments={setInstruments} setLoans={setLoans} setStudentInstruments={setStudentInstruments}
+                saveStudent={saveStudent} saveClass={saveClass} saveRecord={saveRecord}
+                savePendingForClass={savePendingForClass} saveCourses={saveCourses} saveLecturer={saveLecturer}
+                saveInstrument={saveInstrument} saveLoan={saveLoan} saveStudentInstrument={saveStudentInstrument}
                 showToast={showToast} />
             </div>
           )}
@@ -1445,14 +1514,14 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
                   if(!newCourse.trim()) return;
                   const list = courses||[];
                   if(list.includes(newCourse.trim())) return showToast("Course already exists","error");
-                  setCourses([...list, newCourse.trim()]); setNewCourse(""); showToast("Course added.");
+                  saveCourses([...list, newCourse.trim()]); setNewCourse(""); showToast("Course added.");
                 }} label="Add" primary small />
               </div>
               <div style={{marginTop:16}}>
                 {(courses||[]).map(c=>(
                   <div key={c} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #dbeafe"}}>
                     <span style={{color:"#1e3a5f"}}>{c}</span>
-                    <span style={{fontSize:12,color:"#dc2626",cursor:"pointer",fontWeight:600}} onClick={()=>setCourses((courses||[]).filter(x=>x!==c))}>Remove</span>
+                    <span style={{fontSize:12,color:"#dc2626",cursor:"pointer",fontWeight:600}} onClick={()=>saveCourses((courses||[]).filter(x=>x!==c))}>Remove</span>
                   </div>
                 ))}
               </div>
@@ -1560,7 +1629,7 @@ function Ring({ pct:p, size=60 }) {
 }
 
 // ── Student Instrument Tab ────────────────────────────────────────────────────
-function StudentInstrumentTab({ student, studentInstruments, setStudentInstruments, showToast }) {
+function StudentInstrumentTab({ student, studentInstruments, saveStudentInstrument, showToast }) {
   const myInstruments = (studentInstruments||[]).filter(i=>i.studentNo===student.studentNo);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name:"", type:"", serialNo:"", condition:"Good", notes:"" });
@@ -1574,7 +1643,7 @@ function StudentInstrumentTab({ student, studentInstruments, setStudentInstrumen
   const submitInstrument = () => {
     if (!form.name.trim()) return showToast("Instrument name is required","error");
     if (editId) {
-      setStudentInstruments(prev=>(prev||[]).map(i=>i.id===editId?{...i,...form,updatedAt:new Date().toISOString()}:i));
+      saveStudentInstrument({...(studentInstruments||[]).find(i=>i.id===editId)||{},...form,id:editId,updatedAt:new Date().toISOString()});
       showToast("Instrument record updated.");
       setEditId(null);
     } else {
@@ -1587,7 +1656,7 @@ function StudentInstrumentTab({ student, studentInstruments, setStudentInstrumen
         ownership: "department",
         damageReports: []
       };
-      setStudentInstruments(prev=>[...(prev||[]),inst]);
+      saveStudentInstrument(inst);
       showToast("Instrument registered successfully!");
     }
     setForm({ name:"", type:"", serialNo:"", condition:"Good", notes:"" });
@@ -1596,11 +1665,8 @@ function StudentInstrumentTab({ student, studentInstruments, setStudentInstrumen
 
   const reportDamage = (id) => {
     if (!damageNote.trim()) return showToast("Please describe the damage","error");
-    setStudentInstruments(prev=>(prev||[]).map(i=>i.id===id?{
-      ...i,
-      condition:"Damaged",
-      damageReports:[...(i.damageReports||[]),{note:damageNote,reportedAt:new Date().toISOString(),reportedBy:student.name}]
-    }:i));
+    const existing = (studentInstruments||[]).find(i=>i.id===id);
+    if (existing) saveStudentInstrument({...existing,condition:"Damaged",damageReports:[...(existing.damageReports||[]),{note:damageNote,reportedAt:new Date().toISOString(),reportedBy:student.name}]});
     setDamageNote("");
     showToast("Damage report submitted.");
   };
@@ -1688,7 +1754,7 @@ function StudentInstrumentTab({ student, studentInstruments, setStudentInstrumen
 }
 
 // ── Inventory Student Store Card (isolated) ──────────────────────────────────
-function InvStudentStoreCard({ inst, available, condColor, myLoan, myPending, student, setLoans, showToast }) {
+function InvStudentStoreCard({ inst, available, condColor, myLoan, myPending, student, saveLoan, showToast }) {
   const [showReq, setShowReq] = useState(false);
   const [reqNote, setReqNote] = useState("");
   return (
@@ -1720,7 +1786,7 @@ function InvStudentStoreCard({ inst, available, condColor, myLoan, myPending, st
                   const loan={id:Date.now().toString(),instId:inst.id,borrowerName:student.name,
                     borrowerId:student.studentNo,borrowerType:"student",purpose:reqNote.trim(),
                     status:"pending",requestedAt:new Date().toISOString(),damageReports:[]};
-                  setLoans(prev=>[...(prev||[]),loan]);
+                  saveLoan(loan);
                   setReqNote(""); setShowReq(false);
                   showToast("Request submitted — awaiting lecturer approval.");
                 }} label="Submit Request" primary small />
@@ -1855,7 +1921,7 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
                 const myPending=(loans||[]).find(l=>l.instId===inst.id&&l.borrowerId===invStudent.studentNo&&l.status==="pending");
                 return (
                   <InvStudentStoreCard key={inst.id} inst={inst} available={available} condColor={condColor}
-                    myLoan={myLoan} myPending={myPending} student={invStudent} setLoans={setLoans} showToast={showToast} />
+                    myLoan={myLoan} myPending={myPending} student={invStudent} saveLoan={saveLoan} showToast={showToast} />
                 );
               })
             }
@@ -1924,7 +1990,7 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
           <StudentInstrumentTab
             student={invStudent}
             studentInstruments={studentInstruments}
-            setStudentInstruments={setStudentInstruments}
+            saveStudentInstrument={saveStudentInstrument}
             showToast={showToast}
           />
         )}
@@ -1937,19 +2003,20 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
   const addInstrument = () => {
     if (!newInst.name.trim()) return showToast("Instrument name is required","error");
     const inst = { id: Date.now().toString(), ...newInst, quantity: Number(newInst.quantity), addedAt: new Date().toISOString(), damageHistory:[] };
-    setInstruments(prev => [...(prev||[]), inst]);
+    saveInstrument(inst);
     setNewInst({ name:"", type:"", serialNo:"", quantity:1, condition:"Good", location:"" });
     setShowAddInst(false);
     showToast("Instrument added to inventory.");
   };
 
   const updateCondition = (id, condition) => {
-    setInstruments(prev => (prev||[]).map(i => i.id===id ? {...i, condition} : i));
+    const inst = (instruments||[]).find(i=>i.id===id);
+    if (inst) saveInstrument({...inst, condition});
     showToast("Condition updated.");
   };
 
-  const deleteInstrument = (id) => {
-    setInstruments(prev => (prev||[]).filter(i => i.id!==id));
+  const handleDeleteInstrument = (id) => {
+    deleteInstrument(id);
     showToast("Instrument removed.");
   };
 
@@ -1965,24 +2032,25 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
       requestedAt: new Date().toISOString(),
       damageReports: []
     };
-    setLoans(prev => [...(prev||[]), loan]);
+    saveLoan(loan);
     setRequestInstId(null); setRequestNote("");
     showToast("Request submitted — waiting for approval.");
   };
 
   const approveLoan = (loanId) => {
-    setLoans(prev => (prev||[]).map(l => l.id===loanId ? {...l, status:"active", approvedAt:new Date().toISOString(), approvedBy:currentLecturer.name} : l));
+    const loan=(loans||[]).find(l=>l.id===loanId); if(loan) saveLoan({...loan,status:"active",approvedAt:new Date().toISOString(),approvedBy:currentLecturer.name});
     showToast("Loan approved — instrument signed out.");
   };
 
   const rejectLoan = (loanId) => {
-    setLoans(prev => (prev||[]).map(l => l.id===loanId ? {...l, status:"rejected"} : l));
+    const loan=(loans||[]).find(l=>l.id===loanId); if(loan) saveLoan({...loan,status:"rejected"});
     showToast("Request rejected.");
   };
 
   const returnInstrument = (loanId) => {
     const note = returnNote[loanId]||"";
-    setLoans(prev => (prev||[]).map(l => l.id===loanId ? {...l, status:"returned", returnedAt:new Date().toISOString(), returnNote:note} : l));
+    const loan=(loans||[]).find(l=>l.id===loanId);
+    if(loan) saveLoan({...loan,status:"returned",returnedAt:new Date().toISOString(),returnNote:note});
     setReturnNote(prev => { const n={...prev}; delete n[loanId]; return n; });
     showToast("Instrument returned and recorded.");
   };
@@ -1990,10 +2058,8 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
   const reportDamage = (loanId, reporter) => {
     const note = damageNote[loanId]||"";
     if (!note.trim()) return showToast("Please describe the damage","error");
-    setLoans(prev => (prev||[]).map(l => l.id===loanId ? {
-      ...l,
-      damageReports: [...(l.damageReports||[]), { note, reporter, reportedAt:new Date().toISOString() }]
-    } : l));
+    const loan=(loans||[]).find(l=>l.id===loanId);
+    if(loan) saveLoan({...loan,damageReports:[...(loan.damageReports||[]),{note,reporter,reportedAt:new Date().toISOString()}]});
     setDamageNote(prev => { const n={...prev}; delete n[loanId]; return n; });
     showToast("Damage report recorded.");
   };
@@ -2100,7 +2166,7 @@ function InventoryDash({ instruments, setInstruments, loans, setLoans, studentIn
                         onChange={e=>updateCondition(inst.id,e.target.value)}>
                         {CONDITIONS.map(c=><option key={c}>{c}</option>)}
                       </select>
-                      <Btn onClick={()=>deleteInstrument(inst.id)} label="🗑 Remove" small danger />
+                      <Btn onClick={()=>handleDeleteInstrument(inst.id)} label="🗑 Remove" small danger />
                     </div>
                   )}
                   {available>0&&(
