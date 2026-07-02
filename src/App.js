@@ -1,9 +1,31 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import {
   doc, getDoc, setDoc, onSnapshot, collection,
-  getDocs, deleteDoc, writeBatch, query
+  deleteDoc
 } from "firebase/firestore";
+
+// Top-level error boundary — if anything crashes, show a message instead of
+// a dark screen so the problem is at least visible and diagnosable
+class AppErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(e) { return { error: e }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{padding:40,fontFamily:"sans-serif",color:"#1e3a5f",background:"#eef2ff",minHeight:"100vh"}}>
+          <h2>AttendTrack — Something went wrong</h2>
+          <p style={{marginTop:12,color:"#dc2626"}}>{String(this.state.error)}</p>
+          <p style={{marginTop:16,fontSize:13,color:"#4b6cb7"}}>Please take a screenshot of this page and send it. Then tap below to reload.</p>
+          <button onClick={()=>window.location.reload()} style={{marginTop:20,padding:"10px 24px",background:"#1d4ed8",color:"#fff",border:"none",borderRadius:8,fontSize:14,cursor:"pointer"}}>
+            Reload App
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const pct = (a, t) => t === 0 ? 0 : Math.round((a / t) * 100);
@@ -33,32 +55,45 @@ const DEFAULT_LECTURERS = [
 // Subscribe to an entire collection and return it as an object keyed by doc ID.
 // Calls onChange whenever any document in the collection changes.
 function subscribeCollection(colName, onChange, onReady) {
-  const colRef = collection(db, colName);
-  let ready = false;
-  return onSnapshot(colRef, (snap) => {
-    const result = {};
-    snap.forEach(d => { result[d.id] = d.data(); });
-    onChange(result);
-    if (!ready) { ready = true; onReady && onReady(); }
-  }, (err) => {
-    console.error("Listener error for", colName, err);
+  try {
+    const colRef = collection(db, colName);
+    let ready = false;
+    return onSnapshot(colRef, (snap) => {
+      const result = {};
+      snap.forEach(d => { result[d.id] = d.data(); });
+      onChange(result);
+      if (!ready) { ready = true; onReady && onReady(); }
+    }, (err) => {
+      console.error("Listener error for", colName, err);
+      onChange({});
+      if (!ready) { ready = true; onReady && onReady(); }
+    });
+  } catch(e) {
+    console.error("subscribeCollection failed for", colName, e);
     onChange({});
-    if (!ready) { ready = true; onReady && onReady(); }
-  });
+    onReady && onReady();
+    return () => {};
+  }
 }
 
-// Subscribe to a single document (used for courses list and pending).
 function subscribeDoc(colName, docId, onChange, onReady, fallback) {
-  const ref = doc(db, colName, docId);
-  let ready = false;
-  return onSnapshot(ref, (snap) => {
-    onChange(snap.exists() ? snap.data() : fallback);
-    if (!ready) { ready = true; onReady && onReady(); }
-  }, (err) => {
-    console.error("Listener error for", colName, docId, err);
+  try {
+    const ref = doc(db, colName, docId);
+    let ready = false;
+    return onSnapshot(ref, (snap) => {
+      onChange(snap.exists() ? snap.data() : fallback);
+      if (!ready) { ready = true; onReady && onReady(); }
+    }, (err) => {
+      console.error("Listener error for", colName, docId, err);
+      onChange(fallback);
+      if (!ready) { ready = true; onReady && onReady(); }
+    });
+  } catch(e) {
+    console.error("subscribeDoc failed for", colName, docId, e);
     onChange(fallback);
-    if (!ready) { ready = true; onReady && onReady(); }
-  });
+    onReady && onReady();
+    return () => {};
+  }
 }
 
 // Write a single record document. Each call only touches one document
@@ -115,7 +150,7 @@ const loansFromSnap            = (snap) => Object.values(snap);
 const studentInstFromSnap      = (snap) => Object.values(snap);
 
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function App() {
+function AppInner() {
   const [view, setView]             = useState("splash");
   const [students, setStudents]     = useState(null);
   const [classes, setClasses]       = useState(null);
@@ -2446,3 +2481,11 @@ const S = {
   sectionHeader:{ border:"2px solid",borderRadius:12,padding:"12px 16px",marginBottom:12 },
   installBanner:{ display:"flex",alignItems:"flex-start",gap:12,background:"#ffffff",border:"1.5px solid #93c5fd",borderRadius:14,padding:"14px 16px",marginTop:24,maxWidth:400,width:"100%",boxShadow:"0 4px 16px rgba(29,78,216,0.12)" },
 };
+
+export default function App() {
+  return (
+    <AppErrorBoundary>
+      <AppInner />
+    </AppErrorBoundary>
+  );
+}
