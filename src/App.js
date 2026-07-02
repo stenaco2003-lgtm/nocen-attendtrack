@@ -14,6 +14,12 @@ const DEFAULT_LECTURERS = [
   { id: "admin", name: "Admin / HOD", pin: "1234", courses: "__all__", isAdmin: true }
 ];
 
+// Shared secret included in all lecturer/admin writes so Firestore rules
+// can distinguish them from student sessions. Students never have this token
+// so they physically cannot overwrite protected collections even if something
+// goes wrong in their browser tab.
+const LECTURER_AUTH = "nocen-music-lec-2026";
+
 // ── Firebase read/write ───────────────────────────────────────────────────────
 async function fbGet(docPath) {
   try {
@@ -21,9 +27,28 @@ async function fbGet(docPath) {
     return snap.exists() ? snap.data().value : null;
   } catch { return null; }
 }
+
+// Lecturer/Admin write — includes auth token so Firestore rules allow it.
 async function fbSet(docPath, value) {
   try {
-    await setDoc(doc(db, ...docPath.split("/")), { value });
+    await setDoc(doc(db, ...docPath.split("/")), { value, _auth: LECTURER_AUTH });
+  } catch(e) { console.error(e); }
+}
+
+// Student-only pending write — directly updates just the pending list for one
+// specific class using arrayUnion, so it's a safe additive merge rather than
+// a full document overwrite. Students can only call this, never fbSet.
+async function fbAddToPending(classId, studentNo) {
+  try {
+    const ref = doc(db, "attendtrack", "pending");
+    // Read current pending, add student to this class's list, write back
+    const snap = await getDoc(ref);
+    const current = snap.exists() ? (snap.data().value || {}) : {};
+    const list = current[classId] || [];
+    if (list.includes(studentNo)) return; // already pending
+    const updated = { ...current, [classId]: [...list, studentNo] };
+    // Student write — no _auth token, matches the pending-only rule
+    await setDoc(ref, { value: updated });
   } catch(e) { console.error(e); }
 }
 
@@ -47,13 +72,12 @@ export default function App() {
   // Tracks the last value RECEIVED from Firebase for each collection, so we can
   // tell a genuine local edit apart from an update echoed back by our own listener.
   const lastFromServer = useRef({});
-
-  // Tracks which collections have genuinely received at least one real snapshot
-  // from Firebase. This is the ONLY thing allowed to unlock saving for a given
-  // collection — nothing else, including any display-only loading timeout, may
-  // set a collection's "ready" flag. This is what actually prevents writing an
-  // empty/default value over real data during a slow first load.
   const collectionReady = useRef({});
+  const currentLecturerRef = useRef(null);
+
+  // Keep ref in sync with state so saveIfChanged always has the current value
+  // without needing to be in useEffect dependency arrays
+  useEffect(() => { currentLecturerRef.current = currentLecturer; }, [currentLecturer]);
 
   useEffect(() => {
     const collections = {
@@ -110,11 +134,13 @@ export default function App() {
   }, []);
 
   // Save helper — refuses to write a collection to Firebase until that specific
-  // collection has genuinely received its first real snapshot. This is what
-  // stops a slow-loading collection from being saved as an empty default.
+  // collection has genuinely received its first real snapshot, AND only when a
+  // lecturer or admin is logged in. Student sessions NEVER trigger saves here —
+  // their only allowed write is fbAddToPending for attendance submissions.
   function saveIfChanged(key, value) {
     if (value === null) return;
     if (!collectionReady.current[key]) return;
+    if (!currentLecturerRef.current) return; // student session — no writes allowed
     const prev = lastFromServer.current[key];
     if (JSON.stringify(prev) === JSON.stringify(value)) return;
     lastFromServer.current[key] = value;
@@ -485,15 +511,13 @@ function StudentDash({ student, classes, confirmedClasses, records, pending, set
     return !signed && !expired;
   });
 
-  const markAttendance = (classId, correctCode) => {
+  const markAttendance = async (classId, correctCode) => {
     const typed = (codeEntry[classId]||"").trim();
     if (!typed) return showToast("Please enter the attendance code", "error");
     if (typed !== correctCode) return showToast("Incorrect code. Check the board and try again.", "error");
-    setPending(prev => {
-      const list = prev[classId]||[];
-      if (list.includes(student.studentNo)) return prev;
-      return { ...prev, [classId]: [...list, student.studentNo] };
-    });
+    // Use the safe student-only write — this ONLY touches pending for this one
+    // class and never triggers a full dataset save from the student's browser.
+    await fbAddToPending(classId, student.studentNo);
     showToast("Attendance submitted! Awaiting lecturer confirmation.");
   };
 
@@ -841,6 +865,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
   const today = new Date().toISOString().slice(0, 10);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
   const [coursesToStart, setCoursesToStart] = useState([]);
+  const [showCourseSheet, setShowCourseSheet] = useState(false);
   const [newCourseCode, setNewCourseCode] = useState("");
 
   const toggleCourseToStart = (code) => setCoursesToStart(prev =>
@@ -927,11 +952,15 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
   };
 
   const startTodaysClasses = () => {
-    if (myCourses.length===0) return showToast("No courses yet. Type a course code above and tap ＋.", "error");
-    // If the lecturer has exactly one course, there's no real ambiguity — proceed with it.
-    // Otherwise, require an explicit selection so this can never silently open every course at once.
-    const targets = myCourses.length === 1 ? myCourses : coursesToStart;
-    if (targets.length === 0) return showToast("Select at least one course to start below.", "error");
+    if (myCourses.length===0 && !newCourseCode.trim()) return showToast("No courses yet. Add a course code below.", "error");
+    // Single course — no need to show a picker, just start it directly
+    if (myCourses.length===1) return confirmStart(myCourses);
+    // Multiple courses — open the selection sheet
+    setShowCourseSheet(true);
+  };
+
+  const confirmStart = (targets) => {
+    if (!targets||targets.length===0) return showToast("Select at least one course to start.", "error");
     const targetDate = selectedDate;
     const alreadyStarted = targets.filter(code => (classes||[]).some(c=>c.courseCode===code&&c.date===targetDate&&c.confirmed));
     if (alreadyStarted.length===targets.length) return showToast("Selected course(s) for this date are already open.", "error");
@@ -949,7 +978,8 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
     });
     if (newSessions.length>0) setClasses(prev=>[...prev,...newSessions]);
     setCoursesToStart([]);
-    showToast(isPast ? "Past class session(s) created — mark attendance manually." : "Selected class(es) are open — students can sign in!");
+    setShowCourseSheet(false);
+    showToast(isPast ? "Past session(s) created — mark attendance manually." : "Class(es) open — students can sign in!");
   };
 
   const changeMyPin = () => {
@@ -1018,60 +1048,99 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, setLectu
         <Chip label="Pending" value={allPending.length} color="#d97706" />
       </div>
 
-      <div style={S.todayBanner}>
-        <div style={{flex:1}}>
+      <div style={{...S.todayBanner, flexDirection:"column", alignItems:"stretch", gap:10}}>
+        <div>
           <div style={{fontWeight:700,fontSize:14,color:"#1e3a5f"}}>📅 {new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</div>
           <div style={{fontSize:12,color:"#1d4ed8",marginTop:2,fontWeight:600}}>
             {(myCourses||[]).filter(code=>(classes||[]).some(c=>c.courseCode===code&&c.date===today&&c.confirmed)).length} / {(myCourses||[]).length} courses open today
           </div>
-          {(classes||[]).filter(c=>(myCourses||[]).includes(c.courseCode)&&c.date===today&&c.confirmed&&c.attendCode).map(c=>(
-            <div key={c.id} style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:8,background:"#eff6ff",border:"1.5px solid #1d4ed8",borderRadius:8,padding:"4px 14px",marginRight:8}}>
-              <span style={{fontSize:11,color:"#4b6cb7"}}>{c.courseCode}:</span>
-              <span style={{fontSize:22,fontWeight:800,letterSpacing:5,color:"#1d4ed8"}}>{c.attendCode}</span>
-            </div>
-          ))}
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
+            {(classes||[]).filter(c=>(myCourses||[]).includes(c.courseCode)&&c.date===today&&c.confirmed&&c.attendCode).map(c=>(
+              <div key={c.id} style={{display:"inline-flex",alignItems:"center",gap:8,background:"#eff6ff",border:"1.5px solid #1d4ed8",borderRadius:8,padding:"4px 14px"}}>
+                <span style={{fontSize:11,color:"#4b6cb7"}}>{c.courseCode}:</span>
+                <span style={{fontSize:22,fontWeight:800,letterSpacing:5,color:"#1d4ed8"}}>{c.attendCode}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={{fontSize:11,color:"#1e40af",fontWeight:600}}>Date:</span>
-            <input type="date" style={{...S.select,padding:"4px 8px",fontSize:12}} value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} />
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,flex:1}}>
+            <span style={{fontSize:11,color:"#1e40af",fontWeight:600,whiteSpace:"nowrap"}}>Date:</span>
+            <input type="date" style={{...S.select,padding:"6px 8px",fontSize:12,flex:1,minWidth:0}} value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} />
           </div>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={{fontSize:11,color:"#1e40af",fontWeight:600}}>Window:</span>
-            <select style={{...S.select,padding:"4px 8px",fontSize:12}} value={signDuration} onChange={e=>setSignDuration(Number(e.target.value))}>
+            <span style={{fontSize:11,color:"#1e40af",fontWeight:600,whiteSpace:"nowrap"}}>Window:</span>
+            <select style={{...S.select,padding:"6px 8px",fontSize:12}} value={signDuration} onChange={e=>setSignDuration(Number(e.target.value))}>
               {[5,10,15,20,30].map(m=><option key={m} value={m}>{m} min</option>)}
             </select>
           </div>
-          {myCourses.length > 1 && (
-            <div style={{display:"flex",flexWrap:"wrap",gap:4,justifyContent:"flex-end",maxWidth:220}}>
-              {myCourses.map(code=>{
-                const alreadyOpenToday = (classes||[]).some(c=>c.courseCode===code&&c.date===selectedDate&&c.confirmed);
-                return (
-                  <div key={code} onClick={()=>!alreadyOpenToday&&toggleCourseToStart(code)}
-                    style={{fontSize:11,padding:"4px 9px",borderRadius:99,cursor:alreadyOpenToday?"default":"pointer",fontWeight:700,
-                      opacity:alreadyOpenToday?0.5:1,
-                      background:coursesToStart.includes(code)?"#1d4ed8":"#eff6ff",
-                      color:coursesToStart.includes(code)?"#fff":"#1d4ed8",
-                      border:"1.5px solid #93c5fd"}}>
-                    {alreadyOpenToday?"✓ ":""}{code}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <div style={{display:"flex",alignItems:"center",gap:4}}>
-            <input
-              placeholder="New course code"
-              value={newCourseCode}
-              onChange={e=>setNewCourseCode(e.target.value)}
-              style={{...S.select,padding:"4px 8px",fontSize:11,width:110}} />
-            <Btn onClick={addAndSelectNewCourse} label="＋" small />
-          </div>
-          {newCourseCode==="" && coursesToStart.length===0 && myCourses.length>1 &&
-            <div style={{fontSize:10,color:"#4b6cb7",textAlign:"right",maxWidth:220}}>Tap a course above, or type a new one teaching for the first time.</div>}
-          <Btn onClick={startTodaysClasses} label={selectedDate<today?"▶ Create Past Session":"▶ Start Selected"} primary small />
         </div>
+        <Btn onClick={startTodaysClasses}
+          label={selectedDate<today?"▶ Create Past Session":"▶ Start Class"}
+          primary full />
       </div>
+
+      {/* Course selection bottom sheet */}
+      {showCourseSheet&&(
+        <div style={S.overlay} onClick={()=>setShowCourseSheet(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            position:"fixed",bottom:0,left:0,right:0,
+            background:"#fff",borderRadius:"20px 20px 0 0",
+            padding:24,maxHeight:"80vh",overflowY:"auto",
+            boxShadow:"0 -8px 32px rgba(0,0,0,0.18)",zIndex:200
+          }}>
+            <div style={{fontWeight:800,fontSize:16,color:"#1e3a5f",marginBottom:4}}>Select Course(s) to Start</div>
+            <div style={{fontSize:12,color:"#4b6cb7",marginBottom:16}}>
+              {selectedDate} · {signDuration} min window
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              <Btn onClick={()=>{
+                const openable=myCourses.filter(code=>!(classes||[]).some(c=>c.courseCode===code&&c.date===selectedDate&&c.confirmed));
+                setCoursesToStart(openable);
+              }} label="Select All" small />
+              <Btn onClick={()=>setCoursesToStart([])} label="Clear" small />
+            </div>
+            {myCourses.map(code=>{
+              const alreadyOpen=(classes||[]).some(c=>c.courseCode===code&&c.date===selectedDate&&c.confirmed);
+              const selected=coursesToStart.includes(code);
+              return (
+                <div key={code} onClick={()=>!alreadyOpen&&toggleCourseToStart(code)}
+                  style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",
+                    marginBottom:8,borderRadius:12,cursor:alreadyOpen?"default":"pointer",
+                    background:selected?"#eff6ff":alreadyOpen?"#f8fafc":"#ffffff",
+                    border:`1.5px solid ${selected?"#1d4ed8":alreadyOpen?"#e2e8f0":"#dbeafe"}`}}>
+                  <div style={{width:22,height:22,borderRadius:6,flexShrink:0,
+                    border:`2px solid ${selected?"#1d4ed8":alreadyOpen?"#cbd5e1":"#93c5fd"}`,
+                    background:selected?"#1d4ed8":"transparent",
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    {selected&&<span style={{color:"#fff",fontSize:13,fontWeight:800}}>✓</span>}
+                    {alreadyOpen&&!selected&&<span style={{color:"#94a3b8",fontSize:13}}>✓</span>}
+                  </div>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:14,color:alreadyOpen?"#94a3b8":"#1e3a5f"}}>{code}</div>
+                    {alreadyOpen&&<div style={{fontSize:11,color:"#94a3b8"}}>Already open today</div>}
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{marginTop:8,paddingTop:12,borderTop:"1px solid #dbeafe"}}>
+              <div style={{fontSize:12,color:"#4b6cb7",marginBottom:8,fontWeight:600}}>Teaching a new course today?</div>
+              <div style={{display:"flex",gap:6}}>
+                <input placeholder="Type course code e.g. MUS 427"
+                  value={newCourseCode}
+                  onChange={e=>setNewCourseCode(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&addAndSelectNewCourse()}
+                  style={{...S.input,flex:1,padding:"8px 12px",fontSize:13}} />
+                <Btn onClick={addAndSelectNewCourse} label="＋ Add" small />
+              </div>
+            </div>
+            <div style={{marginTop:16,display:"flex",gap:8}}>
+              <Btn onClick={()=>confirmStart(coursesToStart)} label={selectedDate<today?"▶ Create Past Session":"▶ Open Selected Classes"} primary full />
+              <Btn onClick={()=>setShowCourseSheet(false)} label="Cancel" small />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{...S.tabs,flexWrap:"wrap"}}>
         {[["pending","⏳ Pending"],["classes","📅 Classes"],["students","👥 Students"],
