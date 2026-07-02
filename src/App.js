@@ -332,7 +332,7 @@ function AppInner() {
         </div>
       )}
       {view === "splash"   && <Splash setView={setView} />}
-      {view === "register" && <Register students={students} saveStudent={saveStudent} setView={setView} showToast={showToast} setCurrentStudent={setCurrentStudent} />}
+      {view === "register" && <Register students={students} saveStudent={saveStudent} courses={courses} setView={setView} showToast={showToast} setCurrentStudent={setCurrentStudent} />}
       {view === "sign-in"  && <SignInStudent students={students} saveStudent={saveStudent} setView={setView} showToast={showToast} setCurrentStudent={setCurrentStudent} />}
       {view === "student"  && currentStudent && (
         <StudentDash student={currentStudent} classes={classes} confirmedClasses={confirmedClasses}
@@ -468,24 +468,34 @@ function Splash({ setView }) {
 }
 
 // ── Register ──────────────────────────────────────────────────────────────────
-function Register({ students, saveStudent, setView, showToast, setCurrentStudent }) {
-  const [name, setName]       = useState("");
-  const [sno, setSno]         = useState("");
-  const [pwd, setPwd]         = useState("");
-  const [pwd2, setPwd2]       = useState("");
-  const [dept, setDept]       = useState("music");
+function Register({ students, saveStudent, courses, setView, showToast, setCurrentStudent }) {
+  const [name, setName]             = useState("");
+  const [sno, setSno]               = useState("");
+  const [pwd, setPwd]               = useState("");
+  const [pwd2, setPwd2]             = useState("");
+  const [dept, setDept]             = useState("music");
+  const [borrowedCourse, setBorrowedCourse] = useState("");
+
   const submit = () => {
     if (!name.trim() || !sno.trim()) return showToast("Please fill all fields", "error");
     if (!pwd.trim()) return showToast("Please create a password", "error");
     if (pwd.length < 4) return showToast("Password must be at least 4 characters", "error");
     if (pwd !== pwd2) return showToast("Passwords do not match", "error");
     if (students[sno.trim()]) return showToast("Student number already registered", "error");
-    const student = { name: name.trim(), studentNo: sno.trim(), password: pwd, department: dept };
+    if (dept === "borrowed" && !borrowedCourse.trim()) return showToast("Please select or type the course you are borrowing", "error");
+    const student = {
+      name: name.trim(),
+      studentNo: sno.trim(),
+      password: pwd,
+      department: dept,
+      ...(dept === "borrowed" ? { borrowedCourse: borrowedCourse.trim().toUpperCase() } : {})
+    };
     saveStudent(student);
     setCurrentStudent(student);
     showToast("Registration successful! Welcome, " + name.split(" ")[0]);
     setView("student");
   };
+
   return (
     <div style={S.center}>
       <div style={S.card}>
@@ -511,6 +521,41 @@ function Register({ students, saveStudent, setView, showToast, setCurrentStudent
             </div>
           </div>
         </div>
+
+        {/* Course picker — only shown for borrowed students */}
+        {dept === "borrowed" && (
+          <div style={{marginBottom:16}}>
+            <label style={S.label}>Which course are you borrowing?</label>
+            {(courses||[]).length > 0
+              ? <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:6}}>
+                  {(courses||[]).map(code=>(
+                    <div key={code} onClick={()=>setBorrowedCourse(code)}
+                      style={{padding:"8px 16px",borderRadius:99,cursor:"pointer",fontSize:13,fontWeight:700,
+                        background:borrowedCourse===code?"linear-gradient(135deg,#0369a1,#0891b2)":"#f0f7ff",
+                        color:borrowedCourse===code?"#fff":"#1d4ed8",
+                        border:borrowedCourse===code?"none":"1.5px solid #93c5fd"}}>
+                      {code}
+                    </div>
+                  ))}
+                </div>
+              : <div style={{marginTop:6}}>
+                  <input style={S.input} placeholder="Type course code e.g. MUS 302"
+                    value={borrowedCourse} onChange={e=>setBorrowedCourse(e.target.value)} />
+                  <div style={{fontSize:11,color:"#4b6cb7",marginTop:4}}>No courses listed yet — type the code manually.</div>
+                </div>
+            }
+            {(courses||[]).length > 0 && (
+              <input style={{...S.input,marginTop:8}} placeholder="Or type a code if not listed above"
+                value={borrowedCourse} onChange={e=>setBorrowedCourse(e.target.value)} />
+            )}
+            {borrowedCourse && (
+              <div style={{marginTop:6,fontSize:12,color:"#0369a1",fontWeight:600}}>
+                Selected: {borrowedCourse.toUpperCase()}
+              </div>
+            )}
+          </div>
+        )}
+
         <Field label="Create Password" value={pwd} onChange={setPwd} placeholder="Minimum 4 characters" type="password" />
         <Field label="Confirm Password" value={pwd2} onChange={setPwd2} placeholder="Re-enter your password" type="password" />
         <Btn onClick={submit} label="Register & Continue" primary full />
@@ -1383,7 +1428,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, saveLect
               <div style={{fontSize:11,color:"#0369a1",marginTop:2,opacity:0.8}}>
                 {isAdmin
                   ? `${Object.values(students||{}).filter(s=>s.department==="borrowed").length} students · other departments`
-                  : `${Object.values(students||{}).filter(s=>s.department==="borrowed"&&(myCourses||[]).some(code=>(s.borrowedCourse||"").toUpperCase()===code.toUpperCase()||(s.courses||[]).includes(code))).length} students in your courses`
+                  : `${Object.values(students||{}).filter(s=>s.department==="borrowed"&&(myCourses||[]).some(code=>(s.borrowedCourse||"").toUpperCase()===code.toUpperCase())).length} students in your courses`
                 }
               </div>
             </div>
@@ -1391,13 +1436,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, saveLect
               const visibleBorrowed = Object.values(students||{}).filter(s =>
                 s.department==="borrowed" &&
                 (isAdmin || (myCourses||[]).some(code =>
-                  (s.borrowedCourse||"").toUpperCase()===code.toUpperCase() ||
-                  (s.courses||[]).map(c=>c.toUpperCase()).includes(code.toUpperCase()) ||
-                  // Also show if lecturer teaches any course this student has attended
-                  (records && Object.entries(records).some(([classId, list]) =>
-                    list.includes(s.studentNo) &&
-                    (classes||[]).some(c=>c.id===classId&&(myCourses||[]).includes(c.courseCode))
-                  ))
+                  (s.borrowedCourse||"").toUpperCase() === code.toUpperCase()
                 ))
               );
               return visibleBorrowed.length===0
@@ -1423,7 +1462,7 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, saveLect
               });
             })()}
           </>}
-          {selectedStudent&&<StudentModal student={selectedStudent} studentStats={studentStats} courses={myCourses} pct={pct} pctColor={pctColor} onClose={()=>setSelectedStudent(null)} onMoveDept={(s)=>{saveStudent({...s,department:s.department==="borrowed"?"music":"borrowed"});showToast(s.name+" moved successfully.");}}/>}
+          {selectedStudent&&<StudentModal student={selectedStudent} studentStats={studentStats} courses={myCourses} allCourses={courses} pct={pct} pctColor={pctColor} onClose={()=>setSelectedStudent(null)} onSaveStudent={saveStudent} onMoveDept={(s)=>{saveStudent({...s,department:s.department==="borrowed"?"music":"borrowed"});showToast(s.name+" moved successfully.");}}/>}
         </div>
       )}
 
@@ -1632,9 +1671,12 @@ function exportCourseCSV({code,students,classes,records,confirmedClasses,pct,sho
 }
 
 // ── Student Modal ─────────────────────────────────────────────────────────────
-function StudentModal({ student, studentStats, courses, pct, pctColor, onClose, onMoveDept }) {
+function StudentModal({ student, studentStats, courses, allCourses, pct, pctColor, onClose, onMoveDept, onSaveStudent }) {
   const stats=studentStats(student.studentNo,courses);
   const isBorrowed = student.department==="borrowed";
+  const [editingCourse, setEditingCourse] = useState(false);
+  const [borrowedCourse, setBorrowedCourse] = useState(student.borrowedCourse||"");
+
   return (
     <div style={S.overlay} onClick={onClose}>
       <div style={S.modal} onClick={e=>e.stopPropagation()}>
@@ -1646,9 +1688,64 @@ function StudentModal({ student, studentStats, courses, pct, pctColor, onClose, 
               background:isBorrowed?"#e0f2fe":"#dbeafe",color:isBorrowed?"#0369a1":"#1d4ed8"}}>
               {isBorrowed?"📚 Borrowed Course":"🎵 Music Department"}
             </span>
+            {isBorrowed&&student.borrowedCourse&&(
+              <div style={{fontSize:11,color:"#0369a1",marginTop:4,fontWeight:600}}>
+                Borrowing: {student.borrowedCourse}
+              </div>
+            )}
+            {isBorrowed&&!student.borrowedCourse&&(
+              <div style={{fontSize:11,color:"#dc2626",marginTop:4,fontWeight:600}}>
+                ⚠ No course assigned yet
+              </div>
+            )}
           </div>
           <span style={{cursor:"pointer",fontSize:20,color:"#94a3b8"}} onClick={onClose}>✕</span>
         </div>
+
+        {/* Borrowed course editor — only for borrowed students */}
+        {isBorrowed&&onSaveStudent&&(
+          <div style={{marginBottom:14,background:"#f0f7ff",borderRadius:10,padding:12,border:"1.5px solid #bfdbfe"}}>
+            {!editingCourse
+              ? <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:11,color:"#1e40af",fontWeight:700,marginBottom:2}}>BORROWED COURSE</div>
+                    <div style={{fontSize:13,color:"#1e3a5f",fontWeight:700}}>
+                      {student.borrowedCourse||<span style={{color:"#dc2626"}}>Not set</span>}
+                    </div>
+                  </div>
+                  <span onClick={()=>setEditingCourse(true)}
+                    style={{fontSize:12,color:"#1d4ed8",cursor:"pointer",fontWeight:700,padding:"4px 10px",background:"#dbeafe",borderRadius:8}}>
+                    ✏ Edit
+                  </span>
+                </div>
+              : <div>
+                  <div style={{fontSize:11,color:"#1e40af",fontWeight:700,marginBottom:8}}>SELECT BORROWED COURSE</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                    {(allCourses||[]).map(code=>(
+                      <div key={code} onClick={()=>setBorrowedCourse(code)}
+                        style={{padding:"6px 12px",borderRadius:99,cursor:"pointer",fontSize:12,fontWeight:700,
+                          background:borrowedCourse===code?"#1d4ed8":"#eff6ff",
+                          color:borrowedCourse===code?"#fff":"#1d4ed8",
+                          border:`1.5px solid ${borrowedCourse===code?"#1d4ed8":"#93c5fd"}`}}>
+                        {code}
+                      </div>
+                    ))}
+                  </div>
+                  <input style={{...S.input,marginBottom:8,fontSize:12}} placeholder="Or type course code"
+                    value={borrowedCourse} onChange={e=>setBorrowedCourse(e.target.value)} />
+                  <div style={{display:"flex",gap:6}}>
+                    <Btn onClick={()=>{
+                      if(!borrowedCourse.trim()) return;
+                      onSaveStudent({...student,borrowedCourse:borrowedCourse.trim().toUpperCase()});
+                      setEditingCourse(false);
+                    }} label="Save" primary small />
+                    <Btn onClick={()=>{setBorrowedCourse(student.borrowedCourse||"");setEditingCourse(false);}} label="Cancel" small />
+                  </div>
+                </div>
+            }
+          </div>
+        )}
+
         {onMoveDept&&(
           <div onClick={()=>{onMoveDept(student);onClose();}}
             style={{marginBottom:16,padding:"10px 14px",borderRadius:10,cursor:"pointer",textAlign:"center",fontSize:13,fontWeight:700,
