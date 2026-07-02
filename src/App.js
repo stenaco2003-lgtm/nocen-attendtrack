@@ -169,7 +169,8 @@ export default function App() {
     const today = new Date().toISOString().slice(0, 10);
     (async () => {
       try {
-        const lastAuto = await fbGet("attendtrack_autobackups/_last");
+        const lastSnap = await getDoc(doc(db, "at_autobackups", "_last"));
+        const lastAuto = lastSnap.exists() ? lastSnap.data().date : null;
         if (lastAuto === today) return; // already snapshotted today
         const snapshot = {
           version: "1.1",
@@ -854,8 +855,8 @@ function AutoBackupRestore({ saveStudent, saveClass, saveRecord, savePendingForC
     for (let i = 0; i < 7; i++) {
       const d = new Date(); d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().slice(0, 10);
-      const snap = await fbGet(`attendtrack_autobackups/${dateStr}`);
-      if (snap) found.push({ date: dateStr, snap });
+      const snapDoc = await getDoc(doc(db, "at_autobackups", dateStr));
+      if (snapDoc.exists()) found.push({ date: dateStr, snap: snapDoc.data() });
     }
     setDates(found);
     setLoadingDates(false);
