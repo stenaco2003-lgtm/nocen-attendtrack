@@ -1314,7 +1314,18 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, saveLect
                 <div style={{fontWeight:700,color:"#1e3a5f",marginBottom:4,fontSize:13}}>✏ Mark Attendance — {cls.courseCode} · {cls.date}</div>
                 <div style={{fontSize:12,color:"#1e40af",marginBottom:10}}>Tap a student to toggle Present/Absent. Tap Save when done.</div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
-                  {Object.values(students||{}).map(s => {
+                  {Object.values(students||{}).filter(s =>
+                    !s.department || s.department==="music" ||
+                    isAdmin ||
+                    (myCourses||[]).some(code =>
+                      (s.borrowedCourse||"").toUpperCase()===code.toUpperCase() ||
+                      (s.courses||[]).map(c=>c.toUpperCase()).includes(code.toUpperCase()) ||
+                      (records && Object.entries(records).some(([classId, list]) =>
+                        list.includes(s.studentNo) &&
+                        (classes||[]).some(c=>c.id===classId&&(myCourses||[]).includes(c.courseCode))
+                      ))
+                    )
+                  ).map(s => {
                     const present = (records[cls.id]||[]).includes(s.studentNo);
                     return (
                       <div key={s.studentNo} onClick={()=>toggleManualAttendance(cls.id,s.studentNo)}
@@ -1369,11 +1380,31 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, saveLect
 
             <div style={{...S.sectionHeader,background:"linear-gradient(135deg,#e0f2fe,#ecfdf5)",borderColor:"#0891b2",marginTop:16,marginBottom:10}}>
               <div style={{fontWeight:800,color:"#0369a1",fontSize:13}}>📚 Borrowed Course Students</div>
-              <div style={{fontSize:11,color:"#0369a1",marginTop:2,opacity:0.8}}>{Object.values(students||{}).filter(s=>s.department==="borrowed").length} students · other departments</div>
+              <div style={{fontSize:11,color:"#0369a1",marginTop:2,opacity:0.8}}>
+                {isAdmin
+                  ? `${Object.values(students||{}).filter(s=>s.department==="borrowed").length} students · other departments`
+                  : `${Object.values(students||{}).filter(s=>s.department==="borrowed"&&(myCourses||[]).some(code=>(s.borrowedCourse||"").toUpperCase()===code.toUpperCase()||(s.courses||[]).includes(code))).length} students in your courses`
+                }
+              </div>
             </div>
-            {Object.values(students||{}).filter(s=>s.department==="borrowed").length===0
-              ? <div style={{textAlign:"center",color:"#4b6cb7",padding:"10px 0",fontSize:13}}>No borrowed course students yet.</div>
-              : Object.values(students||{}).filter(s=>s.department==="borrowed").map(s=>{
+            {(() => {
+              const visibleBorrowed = Object.values(students||{}).filter(s =>
+                s.department==="borrowed" &&
+                (isAdmin || (myCourses||[]).some(code =>
+                  (s.borrowedCourse||"").toUpperCase()===code.toUpperCase() ||
+                  (s.courses||[]).map(c=>c.toUpperCase()).includes(code.toUpperCase()) ||
+                  // Also show if lecturer teaches any course this student has attended
+                  (records && Object.entries(records).some(([classId, list]) =>
+                    list.includes(s.studentNo) &&
+                    (classes||[]).some(c=>c.id===classId&&(myCourses||[]).includes(c.courseCode))
+                  ))
+                ))
+              );
+              return visibleBorrowed.length===0
+                ? <div style={{textAlign:"center",color:"#4b6cb7",padding:"10px 0",fontSize:13}}>
+                    {isAdmin ? "No borrowed course students yet." : "No borrowed course students in your courses."}
+                  </div>
+                : visibleBorrowed.map(s=>{
                 const stats=studentStats(s.studentNo,myCourses);
                 let tot=0,att=0; Object.values(stats).forEach(x=>{tot+=x.total;att+=x.attended;});
                 const p=pct(att,tot);
@@ -1389,8 +1420,8 @@ function LecturerDash({ currentLecturer, setCurrentLecturer, lecturers, saveLect
                     </div>
                   </div>
                 );
-              })
-            }
+              });
+            })()}
           </>}
           {selectedStudent&&<StudentModal student={selectedStudent} studentStats={studentStats} courses={myCourses} pct={pct} pctColor={pctColor} onClose={()=>setSelectedStudent(null)} onMoveDept={(s)=>{saveStudent({...s,department:s.department==="borrowed"?"music":"borrowed"});showToast(s.name+" moved successfully.");}}/>}
         </div>
