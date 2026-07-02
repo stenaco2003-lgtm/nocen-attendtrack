@@ -196,10 +196,8 @@ function AppInner() {
   // in. Writes to a SEPARATE Firestore path so it can never collide with or
   // overwrite the live data paths. Keeps a rolling 7-day history.
   useEffect(() => {
-    const allReady = ["students","classes","records","pending","courses","lecturers","instruments","loans","studentInstruments"]
-      .every(key => collectionReady.current[key]);
     const isAdminLoggedIn = currentLecturer?.isAdmin || currentLecturer?.courses === "__all__";
-    if (!allReady || !isAdminLoggedIn) return;
+    if (loading || !isAdminLoggedIn) return;
 
     const today = new Date().toISOString().slice(0, 10);
     (async () => {
